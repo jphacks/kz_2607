@@ -11,7 +11,7 @@ class LlmError(Exception):
     pass
 
 
-def openai_chat(system, user, api_key, model, url=OPENAI_URL, json_mode=False):
+def openai_chat(system, user, api_key, model, url=OPENAI_URL, json_mode=False, timeout=TIMEOUT_SEC):
     """system と user の2つの文を渡して、返ってきた文章を返す。"""
     if not api_key or not model:
         raise LlmError("OPENAI_API_KEY か OPENAI_MODEL が設定されていません")
@@ -24,7 +24,7 @@ def openai_chat(system, user, api_key, model, url=OPENAI_URL, json_mode=False):
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key.strip()}"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SEC) as res:
+        with urllib.request.urlopen(request, timeout=timeout) as res:
             data = json.loads(res.read().decode("utf-8"))
         text = data["choices"][0]["message"]["content"]
     except urllib.error.HTTPError as e:
