@@ -25,7 +25,8 @@ import time
 from datetime import datetime
 
 from common import TZ, PetProfile
-from check_memory_data import QUESTIONS, build_data, expected_ok, key_ok, material
+from check_memory_data import (QUESTIONS, RECENT_HIST, RECENT_QUESTIONS, build_data, expected_ok, key_ok, material,
+                               recent_ok)
 
 
 def main():
@@ -95,6 +96,18 @@ def main():
                       f"  質問{info.get('question')}  先頭{first} {info.get('picked') or ''}  「{says[0] if says else ''}」"
                       f"  前の代の思い出 {info.get('past_n')}件（外した {info.get('past_dropped')}） 近さ{info.get('past_scores')}")
         print(f"\n期待どおり {n_ok}/{len(QUESTIONS)}（材料 all）")
+        # まだ要約されていない直近の会話（history）から答える
+        print("\n---- 直近の会話（history）から")
+        recent = MEM.recent_items(RECENT_HIST, "")
+        n_r = 0
+        for q, exp in RECENT_QUESTIONS:
+            picked, info = MEM.select_memories(emb, q, items, MEM.norm_name_map(name_map), today,
+                                               MEM.recent_items(RECENT_HIST, q))
+            ok = recent_ok(exp, picked)
+            n_r += ok
+            print(f"{'○' if ok else '×'} {q}  期待{exp}  選んだ{[m['text'] for m in picked]}  {info.get('why') or ''}")
+            print(f"     直近の近さ: {info.get('recent_scores')}")
+        print(f"\n直近の会話 {n_r}/{len(RECENT_QUESTIONS)}（候補 {len(recent)} 件: {[m['text'] for m in recent]}）")
         return
 
     from chat_lora import ChatLoRA

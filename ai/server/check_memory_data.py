@@ -97,3 +97,30 @@ def key_ok(key, info):
     if key.startswith("past:"):
         return first == "pastMemory" and (info.get("picked") or [None])[0] == key
     return first == key
+
+
+# ---- まだ要約されていない直近の会話（history）から答える（10/25）
+RECENT_HIST = [
+    {"speaker": "owner", "text": "ただいま"},
+    {"speaker": "pet", "text": "おかえり！"},
+    {"speaker": "owner", "text": "去年、大学のオープンキャンパスに行ったんだ"},
+    {"speaker": "pet", "text": "どこの大学？"},
+    {"speaker": "owner", "text": "オックスフォード大学だ。"},
+    {"speaker": "pet", "text": "オックスフォードは名門だよね。ここではどんな授業を受けてたの？"},
+]
+# (質問, 選ばれてほしいもの)。"text:〜" は選んだ思い出の文にその言葉が入っていればよい。None は「覚えてない」
+RECENT_QUESTIONS = [
+    ("去年行った大学はどこだっけ？", "text:オックスフォード"),
+    ("オープンキャンパス覚えてる？", "text:オープンキャンパス"),
+    ("昨日なに食べたっけ？", ["m1"]),                         # 要約された思い出があればそちらを先に
+    ("ピアノの発表会のこと覚えてる？", None),                 # 直近の会話にも無い → 覚えてない
+]
+
+
+def recent_ok(exp, picked):
+    """直近の会話の確認。picked は選んだ思い出（dict）のリスト。"""
+    if exp is None:
+        return not picked
+    if isinstance(exp, str) and exp.startswith("text:"):
+        return any(exp[5:] in m["text"] for m in picked)
+    return bool(picked) and picked[0]["id"] in exp

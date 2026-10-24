@@ -53,6 +53,7 @@ memory.py — 思い出の返事（判定が「思い出」、またはペット
     mem_text.py   … 決まった返事・一言の代わり・プロンプト
     mem_check.py  … 返事のチェック
 """
+import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -64,7 +65,7 @@ from mem_kind import date_range, day_label, is_recall, memory_kind  # noqa: F401
 from mem_names import norm_name_map, unmask  # noqa: F401
 from mem_past import (journey_items, journey_lines, order_by_question, parse_past_memories,  # noqa: F401
                       pick_journey, target_generation)
-from mem_select import parse_memories, select_memories  # noqa: F401
+from mem_select import key_hit, parse_memories, recent_items, select_memories  # noqa: F401
 from mem_text import (_ends_past, build_extra, build_hint, build_react_hint, build_rewrite_hint,  # noqa: F401
                       dont_know_reply, fallback_reaction, template_reply)
 
@@ -76,15 +77,26 @@ class MemoryTalk:
         self.embedder = embedder or Embedder()
 
     def materials(self, kind: str, p: PetProfile, user_text: str, memories, name_map, journeys,
-                  today: date, past_memories=None) -> Tuple[List[str], dict, str]:
+                  today: date, past_memories=None, hist=None) -> Tuple[List[str], dict, str]:
         """【覚えていること】の文・記録・日付の言葉。文が空なら「覚えてない」。"""
         info: Dict[str, Any] = {"kind": kind}
         if kind == "current":
             items = parse_memories(memories, name_map)
-            picked, sel = select_memories(self.embedder, user_text, items, name_map, today)
+            recent = recent_items(hist, user_text)       # まだ要約されていない直近の会話（飼い主の発言）
+            picked, sel = select_memories(self.embedder, user_text, items, name_map, today, recent)
             info.update(sel)
-            labels = [day_label(m["date"], today) for m in picked]
-            lines = [(f"{lb}、" if lb else "") + m["text"] for m, lb in zip(picked, labels)]
+            info["recent_n"] = len(recent)
+            labels = ["さっき" if m.get("recent") else day_label(m["date"], today) for m in picked]
+            lines = [(f"さっき、「{m['text']}」と話してくれた" if m.get("recent") else (f"{lb}、" if lb else "") + m["text"])
+                     for m, lb in zip(picked, labels)]
+            if picked and picked[0].get("recent"):       # 決まった返事は、言った言葉をそのまま引用する（話した順）
+                rec = sorted([m for m in picked if m.get("recent")], key=lambda m: int(m["id"].split(":")[1]))
+                if p.stage == 1:
+                    q = re.sub(r"[、，,！!？?「」\s]", "", picked[0]["text"])   # 赤ちゃんは1つだけ・句読点なし
+                    info["_says"] = [f"さっき{q}っていってたよね"]
+                else:
+                    q = "」「".join(m["text"] for m in rec)
+                    info["_says"] = [f"うん、覚えてるよ！さっき「{q}」って話してくれたよね"]
             # 決まった返事用に、1件目の日付の言葉を別に持つ
             info["label"] = labels[0] if picked else ""
             info["_plain"] = [m["text"] for m in picked]
@@ -137,7 +149,7 @@ class MemoryTalk:
         kind = memory_kind(user_text)
         if past_hint and kind == "current":
             kind = "past"
-        lines, info, label = self.materials(kind, p, user_text, memories, name_map, journeys, today, past_memories)
+        lines, info, label = self.materials(kind, p, user_text, memories, name_map, journeys, today, past_memories, hist)
         plain = info.pop("_plain", [])
         says = info.pop("_says", None)
         if past_hint:
