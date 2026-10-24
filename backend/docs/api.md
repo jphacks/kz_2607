@@ -320,7 +320,10 @@ appearance: {
 - 軸の名前: `activity`(活発さ)、`nightowl`(夜ふかし)、`logical`(理屈っぽさ)、`talkative`(おしゃべり)、`friendly`(人懐っこさ)、`curious`(好奇心)
 - 絵は、`{primary}_{secondary}_{stage}`(6×5×3 = 90枚)と、`{primary}_{stage}`(6×3 = 18枚)の、合計108枚。全部そろわなくても、`fallbackKey` の18枚があれば動く。
 - 性格が変わると、キーも変わる(交換のあとなど)。表示のたびに、`getPet` の `appearance.key` を見る。
-- 軸の値が同じとき(生まれたてなど)は、ペットごとに決まった順で選ぶ。同じペットなら、いつも同じ結果になる。
+- 軸の値が同じときの順番(`primary` も `secondary` も同じ規則):
+  - **誕生のながれ(`setInitialPersonality`)で性格を決めたペット**: 決まった順 `activity → friendly → talkative → logical → curious → nightowl`。`birthTrait`(`active → affection → talkative → logic → curious → night`)と同じ順なので、**誕生のときは `birthTrait` と `primary` が必ず同じ軸**(`active` = `activity`、`affection` = `friendly`、`logic` = `logical`、`night` = `nightowl`)になる。
+  - 昔のペット(誕生のながれを通っていない): ペットごとに決まった順。同じペットなら、いつも同じ結果になる。
+  - 性格が育つと、値が少しずつ変わって同じ値でなくなるので、`primary` は `birthTrait` と違う軸になることがある。
 - 進化(`talkToPet` の `evolved: true`)のあとは、`getPet` を呼び直すと、新しいキーが取れる。
 - 絵のデザインは、人型ではない生き物にする(段階が進んでも、人型にはしない)。
 

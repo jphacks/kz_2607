@@ -186,3 +186,28 @@ def test_answers_accept_ai_vocabulary_and_base_type_is_kept():
     r = call(db, answers={"active": 0, "affection": 1, "talkative": 2, "logic": 3, "curious": 3, "night": 0})
     assert r["personalityAxes"]["logical"] == 0.8 and r["personalityAxes"]["nightowl"] == 0.2
     assert db.docs[("pets", a)]["baseType"] == "cat" and get_pet(db, "u1", "devA")["baseType"] == "cat"
+
+
+def test_birth_trait_and_primary_always_match_at_birth_even_with_ties():
+    from petlogic.appearance import appearance_of
+    from petlogic.birth import axes_of
+    from petlogic.talk import AI_AXIS_NAMES
+    import itertools
+    for answers in itertools.product(range(4), repeat=6):
+        axes = axes_of(list(answers))
+        for pet_id in ("p1", "pet-2", "xyz"):
+            a = appearance_of(pet_id, axes, "baby", fixed_order=True)
+            assert AI_AXIS_NAMES[a["primary"]] == birth_trait(axes)
+            assert a["secondary"] != a["primary"]
+
+
+def test_secondary_uses_same_order_and_getpet_matches_birth_response():
+    db, a, _ = setup()
+    r = call(db, answers=(2, 2, 2, 1, 1, 0))  # activity / friendly / talkative が同点(0.6)
+    ap = r["appearance"]
+    assert (ap["primary"], ap["secondary"]) == ("activity", "friendly") and r["birthTrait"] == "active"
+    assert get_pet(db, "u1", "devA")["appearance"]["key"] == ap["key"]
+    # 誕生のながれを通っていない昔のペットは、これまでどおり(ペットごとの順)
+    legacy = {n: 0.5 for n in ("activity", "friendly", "talkative", "logical", "curious", "nightowl")}
+    from petlogic.appearance import appearance_of
+    assert {appearance_of(f"pet{i}", legacy, "baby")["primary"] for i in range(30)} != {"activity"}
