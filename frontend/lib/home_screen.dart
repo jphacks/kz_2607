@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'core2_connection_screen.dart';
-import 'designsystem/chappy_action.dart';
-import 'designsystem/chappy_card.dart';
-import 'designsystem/chappy_navigation.dart';
+import 'journey_screen.dart';
+import 'designsystem/action_button.dart';
+import 'designsystem/app_card.dart';
+import 'designsystem/bottom_navigation.dart';
 import 'designsystem/journey_gauge.dart';
 import 'foundation/app_colors.dart';
 import 'foundation/app_spacing.dart';
@@ -45,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               Text(message),
               const SizedBox(height: 24),
-              ChappyAction(
+              ActionButton(
                 label: '閉じる',
                 onPressed: () => Navigator.pop(context),
               ),
@@ -88,7 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.medium),
-                      ChappyCard(
+                      AppCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -195,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      const ChappyCard(
+                      const AppCard(
                         color: AppColors.soft,
                         padding: 14,
                         child: Column(
@@ -234,14 +235,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 16),
                       const JourneyGauge(value: 0.72),
                       const SizedBox(height: 12),
-                      ChappyAction(
+                      ActionButton(
                         label: _ble?.ready == true
                             ? '接続済み · M5Stack / 設定'
                             : '未接続 · M5Stackにつなぐ',
                         onPressed: _openConnection,
                       ),
                       const SizedBox(height: 12),
-                      ChappyAction(
+                      ActionButton(
                         label: '確定した交換結果を見る',
                         onPressed: () => _showInfo('交換結果', '交換結果の表示は準備中です。'),
                       ),
@@ -255,12 +256,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 18),
-                  child: ChappyNavigation(
+                  child: BottomNavigation(
                     onSelected: (index) {
                       if (index == 0) return;
-                      final title = ChappyNavigation.labels[index];
+                      if (index == 1) {
+                        Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => const JourneyScreen(),
+                          ),
+                        );
+                        return;
+                      }
+                      final title = BottomNavigation.labels[index];
                       _showInfo(title, switch (index) {
-                        1 => '旅の履歴画面は準備中です。',
                         2 => '旅立ったペットの見守り画面は準備中です。',
                         _ => '届いた手紙を読む画面は準備中です。',
                       });

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../foundation/app_colors.dart';
 import '../foundation/app_spacing.dart';
 
-class ChappyCard extends StatelessWidget {
-  const ChappyCard({
+class AppCard extends StatelessWidget {
+  const AppCard({
     super.key,
     required this.child,
     this.color = AppColors.surface,
