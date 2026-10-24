@@ -1,0 +1,6 @@
+
+# ai/server
+ai/server/.env
+ai/server/__pycache__/
+ai/server/*.jsonl
+.DS_Store
