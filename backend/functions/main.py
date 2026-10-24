@@ -10,6 +10,7 @@ from petlogic.adapters import google_stt, google_tts, http_ai
 from petlogic.errors import ApiError
 from petlogic.exchange import cancel_exchange, get_exchange_result, report_exchange
 from petlogic.journey import finish_journeys, start_journeys
+from petlogic.naming import set_pet_name
 from petlogic.letters import generate_letters, get_letters
 from petlogic.llm import openai_chat
 from petlogic.memory import BATCH_TURNS, summarize_memories
@@ -92,6 +93,13 @@ def getPet(req: https_fn.CallableRequest):
     uid = _require_uid(req)
     data = req.data or {}
     return _run(lambda: get_pet(firestore.client(), uid, data.get("deviceId")))
+
+
+@https_fn.on_call()
+def setPetName(req: https_fn.CallableRequest):
+    """誕生のときに、ペットの名前をつける(1回だけ。あとから変えられない)。入力: deviceId、name。"""
+    uid = _require_uid(req)
+    return _run(lambda: set_pet_name(firestore.client(), uid, req.data))
 
 
 @https_fn.on_call()
