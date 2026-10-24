@@ -95,3 +95,45 @@ def test_exchange_records_new_owner_and_generation_start():
     assert db.docs[("pets", a)]["ownerUid"] == "u2" and db.docs[("pets", b)]["ownerUid"] == "u1"
     assert db.docs[("pets", a)]["creatorUid"] == "u1"  # 最初に作った人は変わらない
     assert db.docs[("pets", a)]["generationStartedAt"] == later
+
+
+# ---- 姿の段階(赤ちゃん → 子供 → 大人) ----
+from petlogic.growth import stage_config, stage_of  # noqa: E402
+
+
+def test_stage_of_boundaries():
+    assert stage_of(0, 30, 100) == {"stage": "baby", "stageIndex": 1, "nextStageAt": 30, "talksToNextStage": 30}
+    assert stage_of(29, 30, 100)["stage"] == "baby"
+    assert stage_of(30, 30, 100)["stage"] == "child" and stage_of(99, 30, 100)["stage"] == "child"
+    assert stage_of(100, 30, 100) == {"stage": "adult", "stageIndex": 3, "nextStageAt": None, "talksToNextStage": None}
+    assert stage_of(None, 30, 100)["stage"] == "baby"
+
+
+def test_stage_config_defaults_and_overrides():
+    db = FakeDb()
+    assert stage_config(db) == (30, 100)
+    db.docs[("config", "game")] = {"stageChildAt": 3, "stageAdultAt": 6.0}
+    assert stage_config(db) == (3, 6)
+    db.docs[("config", "game")] = {"stageChildAt": 9, "stageAdultAt": 5}  # 逆転は無効
+    assert stage_config(db) == (30, 100)
+    db.docs[("config", "game")] = {"stageChildAt": "x", "stageAdultAt": True}
+    assert stage_config(db) == (30, 100)
+
+
+def test_total_talks_survive_exchange_and_evolve_once():
+    db, a, b = setup()
+    db.docs[("config", "game")] = {"stageChildAt": 3, "stageAdultAt": 5}
+    results = [talk_once(db, a) for _ in range(5)]
+    assert [r["stage"] for r in results] == ["baby", "baby", "child", "child", "adult"]
+    assert [r["evolved"] for r in results] == [False, False, True, False, True]
+    swap(db, a, b)
+    pet = db.docs[("pets", a)]
+    assert pet["points"] == 0.0 and pet["totalTalks"] == 5  # ゲージは戻るが、累計は残る
+    info = get_pet(db, "u2", "devB")
+    assert info["totalTalks"] == 5 and info["stage"] == "adult" and info["stageIndex"] == 3
+
+
+def test_get_pet_shows_stage_for_new_pet():
+    db, a, _ = setup()
+    info = get_pet(db, "u1", "devA")
+    assert info["stage"] == "baby" and info["totalTalks"] == 0 and info["talksToNextStage"] == 30

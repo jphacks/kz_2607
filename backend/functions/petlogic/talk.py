@@ -7,7 +7,8 @@ from datetime import timedelta, timezone
 from .adapters import AiCallError
 from .audio_codec import CORE2_RATE, wav_to_core2_adpcm
 from .errors import ApiError
-from .growth import add_talk
+from .growth import add_talk, stage_config, stage_of
+from .personality import maybe_update_personality
 from .learn import learn_words
 from .memory import load_talk_context
 from .register import validate_device_id
@@ -37,7 +38,7 @@ def ai_axes(axes):
     return {ai: axes[mine] for mine, ai in AI_AXIS_NAMES.items() if mine in axes}
 
 
-def build_ai_payload(text, pet_id, pet, now, context=None):
+def build_ai_payload(text, pet_id, pet, now, context=None, stage=None):
     payload = {"text": text, "petId": pet_id, "hour": now.astimezone(JST).hour,
                "generation": pet.get("generation", 1)}
     for key in ("memories", "nameMap", "journeys"):  # 思い出の材料(空なら付けない)
@@ -45,6 +46,8 @@ def build_ai_payload(text, pet_id, pet, now, context=None):
             payload[key] = context[key]
     if pet.get("name"):
         payload["petName"] = pet["name"]
+    if stage:
+        payload["stage"] = stage  # 姿の段階(baby / child / adult)
     axes = ai_axes(pet.get("personalityAxes"))
     if axes:
         payload["personalityAxes"] = axes
@@ -144,7 +147,8 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
         if not isinstance(url, str) or not url.startswith("https://"):
             raise ApiError("unavailable", "AIがまだつながっていません", "ai_not_configured")
         try:
-            answer = ai(url, build_ai_payload(transcript, pet_id, pet, now, context))
+            stage = stage_of(pet.get("totalTalks", 0), *stage_config(db))["stage"]
+            answer = ai(url, build_ai_payload(transcript, pet_id, pet, now, context, stage))
             reply, ai_words = answer["reply"], answer.get("words", [])
         except AiCallError as e:
             logging.error("AIの呼び出しに失敗しました: %s", e)
@@ -189,4 +193,7 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
     progress = add_talk(db, uid, device_id, pet_id, now, run_tx)
     if progress:
         result["gauge"] = progress["gauge"]
+        result["stage"] = progress["stage"]
+        result["evolved"] = progress["evolved"]  # この会話で、姿が進化したとき true
+        maybe_update_personality(db, pet_id, now, run_tx)  # 失敗しても、会話は止めない
     return result

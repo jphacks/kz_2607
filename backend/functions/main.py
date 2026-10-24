@@ -13,6 +13,7 @@ from petlogic.journey import finish_journeys, start_journeys
 from petlogic.letters import generate_letters, get_letters
 from petlogic.llm import openai_chat
 from petlogic.memory import BATCH_TURNS, summarize_memories
+from petlogic.personality import record_progress
 from petlogic.pet import get_pet
 from petlogic.push import fcm_notify, register_push_token
 from petlogic.users import upsert_user, upsert_user_quietly
@@ -91,6 +92,13 @@ def getPet(req: https_fn.CallableRequest):
     uid = _require_uid(req)
     data = req.data or {}
     return _run(lambda: get_pet(firestore.client(), uid, data.get("deviceId")))
+
+
+@https_fn.on_call()
+def recordProgress(req: https_fn.CallableRequest):
+    """1日分の歩数とすれ違い数を記録する(性格の更新に使う)。入力: deviceId、steps、meetCount、date(任意)。"""
+    uid = _require_uid(req)
+    return _run(lambda: record_progress(firestore.client(), uid, req.data, _now()))
 
 
 @https_fn.on_call()

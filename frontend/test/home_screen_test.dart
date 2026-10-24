@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kz_2607/main.dart';
 import 'package:kz_2607/home_screen.dart';
+import 'package:kz_2607/watch_screen.dart';
 import 'package:kz_2607/designsystem/journey_gauge.dart';
 
 Future<void> loadHomeFont() async {
@@ -38,18 +39,17 @@ void main() {
     expect(find.text('接続済み · M5Stack / 設定'), findsNothing);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('navigation opens and closes the corresponding information', (
+  testWidgets('watch tab opens the first pet screen and returns home', (
     tester,
   ) async {
     await tester.pumpWidget(const MyApp(home: HomeScreen()));
-    for (final entry in {'見守る': '旅立ったペットの見守り画面は準備中です。'}.entries) {
-      await tester.tap(find.text(entry.key));
-      await tester.pumpAndSettle();
-      expect(find.text(entry.value), findsOneWidget);
-      await tester.tap(find.text('閉じる'));
-      await tester.pumpAndSettle();
-      expect(find.text(entry.value), findsNothing);
-    }
+    await tester.tap(find.text('見守る'));
+    await tester.pumpAndSettle();
+    expect(find.byType(WatchScreen), findsOneWidget);
+    await tester.tap(find.text('いま').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(WatchScreen), findsNothing);
+    expect(find.byType(HomeScreen), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets(

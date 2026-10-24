@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'core2_connection_screen.dart';
-import 'journey_screen.dart';
 import 'letters_screen.dart';
+import 'watch_screen.dart';
+import 'foundation/watch_pet.dart';
 import 'designsystem/action_button.dart';
 import 'designsystem/app_card.dart';
 import 'designsystem/bottom_navigation.dart';
@@ -11,7 +12,8 @@ import 'foundation/app_spacing.dart';
 import 'foundation/services/core2_ble.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.firstPet = WatchPet.firstCreatedSample});
+  final WatchPet? firstPet;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -271,16 +273,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (index == 1) {
                         Navigator.of(context).push<void>(
                           MaterialPageRoute(
-                            builder: (_) => const JourneyScreen(),
+                            builder: (_) =>
+                                WatchScreen(firstPet: widget.firstPet),
                           ),
                         );
                         return;
                       }
-                      final title = BottomNavigation.labels[index];
-                      _showInfo(title, switch (index) {
-                        2 => '旅立ったペットの見守り画面は準備中です。',
-                        _ => '届いた手紙を読む画面は準備中です。',
-                      });
+                      _showInfo('手紙', '届いた手紙を読む画面は準備中です。');
                     },
                   ),
                 ),

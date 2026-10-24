@@ -6,7 +6,7 @@ import 'designsystem/letter_preview_card.dart';
 import 'foundation/app_colors.dart';
 import 'foundation/controllers/letters_controller.dart';
 import 'letter_detail_screen.dart';
-import 'journey_screen.dart';
+import 'watch_screen.dart';
 
 class LettersScreen extends StatefulWidget {
   const LettersScreen({super.key, this.controller});
@@ -198,17 +198,14 @@ class _LettersScreenState extends State<LettersScreen> {
                         Navigator.maybePop(context);
                         return;
                       }
-                      if (label == '旅') {
+                      if (label == '見守る') {
                         Navigator.of(context).pushReplacement<void, void>(
                           MaterialPageRoute(
-                            builder: (_) => const JourneyScreen(),
+                            builder: (_) => const WatchScreen(),
                           ),
                         );
                         return;
                       }
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('見守る画面は準備中です。')),
-                      );
                     },
                   ),
                 ),

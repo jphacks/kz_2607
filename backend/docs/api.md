@@ -23,7 +23,7 @@
 | 項目 | 内容 |
 | --- | --- |
 | 送る | `deviceId` |
-| 返る | `deviceId`、`petId`、`name`(未設定は `null`)、`points`(会話の回数)、`gauge`(0〜1。会話10回で満タン)、`generation`(世代)、`personalityAxes`(6軸・0〜1)、`learnedWords`(覚えた言葉)、`createdAt`(ISO形式の文字列) |
+| 返る | `deviceId`、`petId`、`name`(未設定は `null`)、`points`(会話の回数)、`gauge`(0〜1。会話10回で満タン)、`totalTalks`(会話の累計。交換しても引き継ぐ)、`stage`(`baby`/`child`/`adult`)、`stageIndex`(1〜3)、`nextStageAt`(次の段階になる累計回数。大人は `null`)、`talksToNextStage`(あと何回か。大人は `null`)、`generation`(世代)、`personalityAxes`(6軸・0〜1)、`learnedWords`(覚えた言葉)、`createdAt`(ISO形式の文字列) |
 
 - 飼い主のUIDなどは返さない。交換で端末のペットが変わっても、いまのペットを返す
 - ゲージは、会話するたびに進む(詳しくは下の「ゲージ」)
@@ -45,15 +45,17 @@
 エラー: `invalid-argument`(token の形が違う)、`unauthenticated`。1人が複数の端末を使っていても、全部に届く。
 
 ## getLetters
-自分が**最初に作った**ペットから届いた手紙を、新しい順に返す(最大30通)。ホーム画面や手紙の画面を開くときに呼ぶ。
+**一番最初に作った1体**のペットから届いた、自分宛ての手紙を、新しい順に返す(最大30通)。ホーム画面や手紙の画面を開くときに呼ぶ。
 
 | 項目 | 内容 |
-| --- | --- |
+|---|---|
 | 送る | なし |
-| 返る | `{ "letters": [ { letterId, petId, petName, title, body, generation, createdAt } ] }` |
+| 返る | `{ "firstPetId": "ペットID" または null, "letters": [ { letterId, petId, petName, title, body, generation, createdAt } ] }` |
 
+- 「一番最初に作った1体」は、`users/{uid}/createdPets` の作成日時が最も古いペット。あとから作った2体目以降の手紙は、返さない
+- まだペットを作っていない: `{ "firstPetId": null, "letters": [] }`
+- ペットはいるが手紙がまだない: `{ "firstPetId": "ペットID", "letters": [] }`
 - `createdAt` は、ISO形式の文字列。`petName` は未設定なら `null`
-- 手紙は、まだなければ空の配列
 - 通知をタップしたとき: 通知の `data` に `type: "letter"`、`petId`、`letterId` が入っている。`getLetters` の結果から、その `letterId` を探して表示する
 
 ## 手紙のしくみ
@@ -249,3 +251,79 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 - 交換時(`summarizeHandoff`)に、終わった代の残りの会話(3往復以上)も要約し、journeys に値(言葉・会話数・時間帯)と summary を書く。
 - 思い出の日付(`createdAt`)は、出来事のあった日の12:00(JST)。
 - モデル名は `functions/.env` の `OPENAI_MODEL`(仕様書の `gpt-6-luna` ではなく、実際の `gpt-5.6-luna`)。
+
+## recordProgress(歩数とすれ違いを送る)
+
+アプリが、Core2 から受け取った1日分の歩数・すれ違い数を送る。性格の「活発さ」「人懐っこさ」の計算に使う(ゲージには入れない)。
+
+| 入力 | 内容 |
+|---|---|
+| `deviceId` | 端末ID(自分の端末) |
+| `steps` | その日の歩数(0〜200000の整数) |
+| `meetCount` | その日のすれ違い数(0〜1000の整数) |
+| `date` | `YYYY-MM-DD`(省略すると今日。今日から7日前まで) |
+
+返る: `{status: "ok", date, personalityUpdated}`。同じ日に送り直すと、上書きする(その日の累計を送ればよい)。同期のたびに、今日の累計を送る形がよい。
+
+## 性格のしくみ
+
+- 6軸(`activity` `friendly` `talkative` `logical` `curious` `nightowl`)が、飼い主の話し方・関わり方に、少しずつ近づく。`getPet` の `personalityAxes` で見られる。
+- 更新のタイミング: 会話が2回ふえたとき。または、前回の更新から24時間たって、何か材料(会話1回以上、または `recordProgress`)があるとき。
+- 水準の計算
+  - `activity`: 1日の平均歩数 ÷ 12000
+  - `friendly`: 1日の平均すれ違い数 ÷ 5
+  - `talkative`: 1日の平均会話回数 ÷ 20
+  - `nightowl`: 22時〜4時の会話の割合
+  - `logical`: 理由・順序を表す言葉と、感覚の言葉の比
+  - `curious`: 新しい話題の割合と、質問の割合
+- 更新式: `v ← v + η·c·(L − v)`(`c` は材料の多さ。会話10件、歩数3日分で1.0)。1人の飼い主で動ける幅は、受け取った時点から ±0.2。
+- 調整: Firestore の `config/game` で変えられる(再デプロイは要らない)。
+
+| キー | 既定 | 意味 |
+|---|---|---|
+| `personalityUpdateEvery` | 2 | 会話がこの回数ふえるごとに更新する。資料の式②(ΔP ≥ P_full÷6)で、いまの満タンは10回なので約2。**1人の飼い主のもとで長く話す(満タン後も交換しない)なら、17など大きくする** |
+| `personalityEta` | 0.12 | 近づく速さ。デモでは 0.5 などにすると、変化が見えやすい |
+| `personalityMaxShift` | 0.2 | 1人の飼い主で動ける幅 |
+| `curiousNewTopicWeight` | 0.5 | 好奇心のうち「新しい話題」の割合(0〜1)。実際の会話で「新しい話題」が8割を超えて差がつかないときは、0 にすると、質問の割合だけで決まる |
+
+- 時刻(夜ふかし・1日あたりの回数)は、日本時間(UTC+9)に直して数える。
+- 質問は、「？」「なんで」「教えて」「ですか」などのほか、文の終わりが「か」「の」のものも数える(音声から変換した文字には「？」が付かないことがあるため)。
+- 更新のたびに、材料(会話の件数・新しい話題の割合・質問の割合・論理と感覚の言葉の数)を、Cloud Functions のログ(`性格の材料: ...`)に出す。実際の値を見て、設定を調整できる。
+- 会話の材料は、直近50件のみ。
+
+## 姿の段階(赤ちゃん → 子供 → 大人)
+
+- 段階は、**会話の累計回数**で決まる。既定は、30回で子供、100回で大人。交換してもゲージ(10回で満タン)は戻るが、累計は引き継ぐ。
+- 絵は、アプリ・Core2 が持つ。バックエンドは、どの絵かを示す**キー**だけ返す(`getPet` の `appearance`)。下の「絵のキー」を見る。
+- `talkToPet` の結果に、`stage` と `evolved`(この会話で進化したとき true)が付く。進化の演出に使える。
+- AIサーバーへの送信にも、`stage` が付く(口調を変えたいときに使う)。
+- 回数は、Firestore の `config/game` の `stageChildAt`・`stageAdultAt` で変えられる。デモでは、3 と 6 などにすると、すぐ進化する。
+
+## 絵のキー(`getPet` の `appearance`)
+
+性格の**いちばん強い軸**と**2番目に強い軸**、そして**成長の段階**で、絵が決まる。生まれたての赤ちゃんの段階から、性格に合った絵が出る。
+
+```
+appearance: {
+  stage: "baby",                  // baby / child / adult
+  primary: "nightowl",            // いちばん強い軸
+  secondary: "curious",           // 2番目に強い軸
+  key: "nightowl_curious_baby",   // 出す絵のキー
+  fallbackKey: "nightowl_baby"    // key の絵がないときの代わり
+}
+```
+
+- 軸の名前: `activity`(活発さ)、`nightowl`(夜ふかし)、`logical`(理屈っぽさ)、`talkative`(おしゃべり)、`friendly`(人懐っこさ)、`curious`(好奇心)
+- 絵は、`{primary}_{secondary}_{stage}`(6×5×3 = 90枚)と、`{primary}_{stage}`(6×3 = 18枚)の、合計108枚。全部そろわなくても、`fallbackKey` の18枚があれば動く。
+- 性格が変わると、キーも変わる(交換のあとなど)。表示のたびに、`getPet` の `appearance.key` を見る。
+- 軸の値が同じとき(生まれたてなど)は、ペットごとに決まった順で選ぶ。同じペットなら、いつも同じ結果になる。
+- 進化(`talkToPet` の `evolved: true`)のあとは、`getPet` を呼び直すと、新しいキーが取れる。
+- 絵のデザインは、人型ではない生き物にする(段階が進んでも、人型にはしない)。
+
+## 最初のペットの記録(`users/{uid}.firstPetId`)
+
+- ユーザーが**一番最初に作ったペット**のIDを、`users/{uid}` の `firstPetId` に記録する。`registerDevice` で、初めてペットが作られたときに書かれる。
+- 一度決まったら、変わらない(あとから2体目、3体目を作っても同じ)。
+- 以前から使っているユーザーは、`getLetters` を呼んだときに、自動で記録される(作成日時が最古のペット)。
+- 「一番最初」は、`users/{uid}/createdPets` の作成日時が最も古いもの。同じなら、IDの小さいほう。
+- 手紙(`getLetters`・毎朝9時の配信)は、このペットだけが対象。
