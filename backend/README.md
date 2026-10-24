@@ -13,3 +13,4 @@
 | 2026-10-24 | すれ違い交換(`reportExchange`、`getExchangeResult`、`cancelExchange`)を新規実装。テスト27件 |
 | 2026-10-24 | 音声会話 `talkToPet`(文字起こし、AI連携、声、回数制限)を新規実装。テスト54件。`scripts/talk.mjs` を追加 |
 | 2026-10-24 | テスト用の声を作る `scripts/make-test-voice.ps1` を追加 |
+| 2026-10-24 | 言葉を覚える処理(AIが選んだ言葉の安全確認と保存)を新規実装。テスト78件 |

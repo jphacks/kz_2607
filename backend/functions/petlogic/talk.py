@@ -5,6 +5,7 @@ from datetime import timedelta, timezone
 
 from .adapters import AiCallError
 from .errors import ApiError
+from .learn import learn_words
 from .register import validate_device_id
 from .store import run_in_transaction
 from .wav import describe_wav, parse_recording
@@ -67,7 +68,7 @@ def check_rate_limit(db, uid, now, run_tx):
 
 def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
     """recognize / ai / tts は、外部サービスへの接続(テストでは差し替える)。
-    ai(url, payload) → 返答の文章。"""
+    ai(url, payload) → {"reply": 返答の文章, "words": 覚えさせたい言葉の候補}。"""
     data = data or {}
     device_id = validate_device_id(data.get("deviceId"))
     language = data.get("languageCode") or "ja-JP"
@@ -105,8 +106,8 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
     phrases = [pet["name"]] if pet.get("name") else []
     try:
         transcript, _confidence = recognize(pcm, rate, language, phrases)
-    except Exception:
-        logging.exception("音声認識に失敗しました")
+    except Exception as e:
+        logging.error("音声認識に失敗しました: %s: %s", type(e).__name__, str(e)[:500].replace("\n", " "))
         raise ApiError("unavailable", "音声を文字にできませんでした", "stt_failed")
     base = {"petId": pet_id, "durationSec": round(seconds, 2)}
     if not transcript:
@@ -114,6 +115,7 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
 
     config_snap = db.collection("config").document("ai").get()
     config = config_snap.to_dict() if config_snap.exists else {}
+    ai_words = []
     if config.get("mode") == "echo":
         reply = f"「{transcript}」って言ったね。"
     else:
@@ -121,7 +123,8 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
         if not isinstance(url, str) or not url.startswith("https://"):
             raise ApiError("unavailable", "AIがまだつながっていません", "ai_not_configured")
         try:
-            reply = ai(url, build_ai_payload(transcript, pet_id, pet, now))
+            answer = ai(url, build_ai_payload(transcript, pet_id, pet, now))
+            reply, ai_words = answer["reply"], answer.get("words", [])
         except AiCallError as e:
             logging.error("AIの呼び出しに失敗しました: %s", e)
             raise ApiError("unavailable", "AIの返答を作れませんでした", "ai_failed")
@@ -136,8 +139,8 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
             result["replyAudioBase64"] = base64.b64encode(wav).decode("ascii")
             result["replyAudio"] = describe_wav(wav)
             result["audioStatus"] = "ok"
-        except Exception:
-            logging.exception("音声合成に失敗しました")
+        except Exception as e:
+            logging.error("音声合成に失敗しました: %s: %s", type(e).__name__, str(e)[:500].replace("\n", " "))
             result["audioStatus"] = "failed"  # 文章は返す
 
     # 返答を作っている間に、交換でペットが変わっていないか
@@ -149,4 +152,5 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
             "pet_changed",
             {"currentPetId": now_pet},
         )
+    result["learnedWords"] = learn_words(db, uid, device_id, pet_id, ai_words, now, run_tx)
     return result

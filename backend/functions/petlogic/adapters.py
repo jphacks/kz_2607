@@ -50,7 +50,7 @@ def google_tts(text):
 
 
 def http_ai(url, payload, api_key):
-    """AIサーバーに送って、返答の文章を受け取る。"""
+    """AIサーバーに送って、{"reply": 返答の文章, "words": 覚えさせたい言葉の候補} を受け取る。"""
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["X-Api-Key"] = api_key.strip()
@@ -64,8 +64,13 @@ def http_ai(url, payload, api_key):
         raise AiCallError(str(e))
     if not isinstance(body, dict):
         raise AiCallError("AIの返事の形が違います")
+    words = []
+    for key in ("learn_words", "learnWords", "learned_words"):
+        if isinstance(body.get(key), list):
+            words = body[key]
+            break
     for key in ("reply_text", "replyText", "reply"):
         value = body.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
+            return {"reply": value.strip(), "words": words}
     raise AiCallError("AIの返事に、文章がありません")
