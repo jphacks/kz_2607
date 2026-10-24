@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kz_2607/foundation/services/cloud_functions_service.dart';
 import 'package:kz_2607/foundation/services/step_progress_sync.dart';
@@ -68,5 +69,28 @@ void main() {
     now = now.add(const Duration(minutes: 2));
     await sync.flush(uid: 'user-1', deviceId: 'AABBCCDDEEFF', petId: 'pet-1');
     expect(attempts, 2);
+  });
+
+  test('retries only the callable integer serialization error', () async {
+    var fallbackCalls = 0;
+    final api = CloudFunctionsService(
+      prepare: () async {},
+      invoke: (name, args, _) async {
+        expect(name, 'recordProgress');
+        expect(args['steps'], isA<int>());
+        throw FirebaseFunctionsException(
+          code: 'invalid-argument',
+          message: 'steps は、0〜200000 の整数にしてください',
+        );
+      },
+      progressFallback: (args) async {
+        fallbackCalls++;
+        expect(args['steps'], 7);
+        return {'status': 'ok', 'date': args['date']};
+      },
+    );
+    await api.recordProgress(deviceId: 'AABBCCDDEEFF',
+        date: '2026-10-25', steps: 7);
+    expect(fallbackCalls, 1);
   });
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'voice_transfer.dart';
 import '../models/pet_letter.dart';
@@ -12,12 +13,15 @@ class CloudFunctionsService {
   CloudFunctionsService({
     Future<void> Function()? prepare,
     Future<Object?> Function(String, Map<String, Object?>, Duration)? invoke,
+    Future<Object?> Function(Map<String, Object?>)? progressFallback,
   }) : _prepare = prepare ?? _initializeAndAuthenticate,
-       _invoke = invoke ?? _call;
+       _invoke = invoke ?? _call,
+       _progressFallback = progressFallback ?? _callProgressRaw;
   static const region = 'asia-northeast1';
   final Future<void> Function() _prepare;
   final Future<Object?> Function(String, Map<String, Object?>, Duration)
   _invoke;
+  final Future<Object?> Function(Map<String, Object?>) _progressFallback;
 
   static Future<void> _initializeAndAuthenticate() async {
     if (Firebase.apps.isEmpty) await Firebase.initializeApp();
@@ -85,16 +89,65 @@ class CloudFunctionsService {
     required String date,
     required int steps,
   }) async {
+    if (steps < 0 || steps > 200000) {
+      throw RangeError.range(steps, 0, 200000, 'steps');
+    }
     await _prepare();
-    final result = await _invoke('recordProgress', {
+    final data = <String, Object?>{
       'deviceId': deviceId,
       'date': date,
       'steps': steps,
-    }, const Duration(seconds: 30));
+    };
+    Object? result;
+    try {
+      result = await _invoke('recordProgress', data, const Duration(seconds: 30));
+    } on FirebaseFunctionsException catch (error) {
+      if (error.code != 'invalid-argument' ||
+          !(error.message ?? '').contains('steps')) rethrow;
+      // Some native callable codecs send Dart int as a protobuf Int64Value.
+      // A direct callable request preserves this bounded value as a JSON int.
+      result = await _progressFallback(data);
+    }
     if (result is! Map ||
         result['status'] != 'ok' ||
         result['date'] != date) {
       throw const FormatException('recordProgressの応答が仕様と異なります');
+    }
+  }
+
+  static Future<Object?> _callProgressRaw(Map<String, Object?> data) async {
+    final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+    if (token == null || token.isEmpty) {
+      throw StateError('歩数の送信にはFirebaseログインが必要です');
+    }
+    final projectId = Firebase.app().options.projectId;
+    final uri = Uri.https('$region-$projectId.cloudfunctions.net',
+        '/recordProgress');
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = await client.postUrl(uri).timeout(const Duration(seconds: 30));
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      final payload = utf8.encode(jsonEncode({'data': data}));
+      request.contentLength = payload.length;
+      request.add(payload);
+      final response = await request.close().timeout(const Duration(seconds: 30));
+      final body = await utf8.decoder.bind(response).join()
+          .timeout(const Duration(seconds: 30));
+      final decoded = jsonDecode(body);
+      if (decoded is! Map) throw const FormatException('recordProgressの応答が不正です');
+      final error = decoded['error'];
+      if (error is Map) {
+        throw FirebaseFunctionsException(
+          code: (error['status']?.toString() ?? 'unknown')
+              .toLowerCase().replaceAll('_', '-'),
+          message: error['message']?.toString(),
+          details: error['details'],
+        );
+      }
+      return decoded['result'] ?? decoded['data'];
+    } finally {
+      client.close(force: true);
     }
   }
 
