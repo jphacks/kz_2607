@@ -98,11 +98,13 @@
 { status: "ok" | "no_speech", transcript, replyText,
   audioStatus: "ok" | "failed" | "skipped",
   replyAudioBase64, replyAudio: { format: "wav", sampleRate, channels },   // audioStatus が ok のときだけ
+  learnedWords,   // この会話で、新しく覚えた言葉(なければ空の配列)
   petId, durationSec }
 ```
 - `no_speech`: 声が聞き取れなかった。AIは呼ばない。再録音を促す
 - `audioStatus: "failed"`: 声が作れなかった。**文章(`replyText`)は返る**ので、画面には出せる
 - 返事の文章は200文字まで。声は、24kHz・モノラル・16bitのWAV
+- `learnedWords`: AIが選んだ言葉のうち、ペットが覚えたもの。アプリは「〇〇を覚えたよ」の表示に使える
 - 音声は保存しない
 
 エラー
@@ -129,13 +131,19 @@
 | `personalityAxes` | 性格6軸(0〜1)。`active`、`affection`、`talkative`、`logic`、`curious`、`night` |
 | `hour` | 日本時間の「いまの時」(0〜23) |
 
-返事は `reply_text`(`replyText` や `reply` でもよい)に、文章を入れる。
+返事は `reply_text`(`replyText` や `reply` でもよい)に、文章を入れる。覚えさせたい言葉があれば、`learn_words`(文字列の配列。`learnWords` や `learned_words` でもよい)に入れる。
 
 AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の `url` から読む(`https://` で始まるもの)。変えるのに、再デプロイは要らない。
 `mode` を `"echo"` にすると、AIを呼ばず、聞いた言葉をそのまま返す(AIが用意できるまでの、動作確認用)。
 
 ## まだ対応していないこと
-- ペットが言葉を覚える処理(AIが選んだ言葉の保存)
 - Core2向けの声の形式(16kHz・IMA-ADPCM)
 - 会話の履歴(AIに渡す、直前の会話)
+
+## 言葉を覚える決まり
+- 1回の会話で、覚えるのは最大3語。1語は20文字まで。ペットは50語まで覚える
+- すでに覚えた言葉は、増えない
+- 次の言葉は、覚えない: URL、メールアドレス、4桁以上の数字、AIへの指示のように見えるもの、改行などの制御文字
+- いまの持ち主の、いまのペットだけが覚える。覚える処理に失敗しても、会話の返事は返す(`learnedWords` は空)
+- 覚えた言葉は、ペットの `learnedWords` と、履歴(`pets/{petId}/history`)に記録される
 

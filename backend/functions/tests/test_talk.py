@@ -36,8 +36,9 @@ def b64(wav):
 
 
 class Fakes:
-    def __init__(self, transcript="こんにちは", reply="やあ！", tts_ok=True, ai_ok=True):
+    def __init__(self, transcript="こんにちは", reply="やあ！", tts_ok=True, ai_ok=True, words=None):
         self.transcript, self.reply, self.tts_ok, self.ai_ok = transcript, reply, tts_ok, ai_ok
+        self.words = words or []
         self.ai_calls = []
         self.stt_calls = []
 
@@ -49,7 +50,7 @@ class Fakes:
         self.ai_calls.append((url, payload))
         if not self.ai_ok:
             raise AiCallError("down")
-        return self.reply
+        return {"reply": self.reply, "words": self.words}
 
     def tts(self, text):
         if not self.tts_ok:
@@ -240,14 +241,20 @@ def server():
 
 
 def test_http_ai_sends_key_and_reads_reply(server):
-    assert http_ai(server, {"text": "やあ"}, " secret\n") == "こんにちは！"
+    assert http_ai(server, {"text": "やあ"}, " secret\n") == {"reply": "こんにちは！", "words": []}
     assert _Handler.seen["key"] == "secret" and _Handler.seen["body"] == {"text": "やあ"}
 
 
 @pytest.mark.parametrize("body", [{"replyText": "A"}, {"reply": "A"}])
 def test_http_ai_accepts_other_reply_names(server, body):
     _Handler.reply = body
-    assert http_ai(server, {}, None) == "A"
+    assert http_ai(server, {}, None)["reply"] == "A"
+
+
+@pytest.mark.parametrize("key", ["learn_words", "learnWords", "learned_words"])
+def test_http_ai_reads_learn_words(server, key):
+    _Handler.reply = {"reply_text": "A", key: ["みかん"]}
+    assert http_ai(server, {}, None) == {"reply": "A", "words": ["みかん"]}
 
 
 @pytest.mark.parametrize("body,status", [({"x": 1}, 200), ({"reply_text": ""}, 200), ({"detail": "bad api key"}, 401)])
@@ -255,3 +262,50 @@ def test_http_ai_failures(server, body, status):
     _Handler.reply, _Handler.status = body, status
     with pytest.raises(AiCallError):
         http_ai(server, {}, "k")
+
+
+# --- 言葉を覚える ---
+
+def test_talk_learns_words_chosen_by_ai():
+    db, pet = setup()
+    r = call(db, Fakes(words=["みかん", "ねこ"]))
+    assert r["learnedWords"] == ["みかん", "ねこ"]
+    assert db.docs[("pets", pet)]["learnedWords"] == ["みかん", "ねこ"]
+    history = [v for k, v in db.docs.items() if k[0] == f"pets/{pet}/history"]
+    assert history and history[0]["type"] == "wordsTaught" and history[0]["words"] == ["みかん", "ねこ"]
+
+
+def test_talk_without_words_learns_nothing():
+    db, pet = setup()
+    assert call(db, Fakes())["learnedWords"] == []
+    assert db.docs[("pets", pet)]["learnedWords"] == []
+
+
+def test_learning_failure_does_not_break_the_conversation():
+    db, pet = setup()
+    f = Fakes(words=["みかん"])
+    calls = {"n": 0}
+
+    def flaky_run_tx(d, fn):
+        calls["n"] += 1
+        if calls["n"] >= 2:  # 1回目は回数制限。2回目(言葉を覚える処理)を失敗させる
+            raise RuntimeError("firestore down")
+        return run_tx(d, fn)
+
+    r = talk(db, "u1", {"deviceId": "devA", "audioBase64": b64(make_wav())}, NOW,
+             f.recognize, f.ai, f.tts, run_tx=flaky_run_tx)
+    assert r["status"] == "ok" and r["learnedWords"] == []
+
+
+def test_nothing_learned_when_pet_changed_during_reply():
+    db, pet = setup()
+    f = Fakes(words=["みかん"])
+    original = f.ai
+
+    def swapping_ai(url, payload):
+        db.docs[("devices", "devA")]["currentPetId"] = "traded-away"
+        return original(url, payload)
+
+    f.ai = swapping_ai
+    assert err(db, f).reason == "pet_changed"
+    assert db.docs[("pets", pet)]["learnedWords"] == []

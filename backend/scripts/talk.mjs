@@ -42,6 +42,7 @@ console.log(`状態: ${r.status}  (${((Date.now() - started) / 1000).toFixed(1)}
 console.log("聞き取り:", r.transcript);
 console.log("返事:", r.replyText);
 console.log("音声:", r.audioStatus);
+console.log("覚えた言葉:", JSON.stringify(r.learnedWords));
 if (r.replyAudioBase64) {
   fs.writeFileSync("reply.wav", Buffer.from(r.replyAudioBase64, "base64"));
   console.log("返事の声を reply.wav に保存しました");
