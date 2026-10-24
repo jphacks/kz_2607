@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -22,6 +23,7 @@ class VoiceCloudService extends ChangeNotifier {
   List<String> learnedWords = [];
   bool _busy = false, _disposed = false;
   int _epoch = 0;
+  bool _autoEnable = false;
   bool get busy => _busy;
   bool get enabled => deviceId != null && petId != null && _connection != null;
   bool get connected => _connection != null;
@@ -45,6 +47,7 @@ class VoiceCloudService extends ChangeNotifier {
   }
 
   void disable() {
+    _autoEnable = false;
     _epoch++;
     if (_transferringReply) cancelReply?.call();
     replyTransferStatus = null;
@@ -53,8 +56,22 @@ class VoiceCloudService extends ChangeNotifier {
     transcript = replyText = null;
     replyAudio = null;
     learnedWords = [];
-    status = '音声送信は無効です。接続先とdeviceIdを確認して有効にしてください';
+    status = '音声中継は停止中です。M5Stackへの接続後に自動で準備します';
     _publish();
+  }
+
+  // Called after the user selects a Core2 and BLE setup has completed.
+  void startForConnection(String connection) {
+    if (_disposed) return;
+    setConnection(connection);
+    _autoEnable = true;
+    _resumeAutoEnable();
+  }
+
+  void _resumeAutoEnable() {
+    if (_disposed || !_autoEnable || _busy || !connected || enabled) return;
+    _autoEnable = false;
+    unawaited(enable());
   }
 
   Future<void> enable() async {
@@ -82,6 +99,7 @@ class VoiceCloudService extends ChangeNotifier {
     } finally {
       _busy = false;
       _publish();
+      _resumeAutoEnable();
     }
   }
 
@@ -155,7 +173,8 @@ class VoiceCloudService extends ChangeNotifier {
           e.details is Map &&
           (e.details as Map)['reason'] == 'pet_changed') {
         disable();
-        status = '${_error('talkToPet', e)}\nペットが変わったため会話を破棄しました。端末を再登録してください';
+        status =
+            '${_error('talkToPet', e)}\nペットが変わったため会話を破棄しました。M5Stackに再接続してください';
       } else {
         status = _error('talkToPet', e);
       }
@@ -163,6 +182,7 @@ class VoiceCloudService extends ChangeNotifier {
     } finally {
       _busy = false;
       _publish();
+      _resumeAutoEnable();
     }
   }
 

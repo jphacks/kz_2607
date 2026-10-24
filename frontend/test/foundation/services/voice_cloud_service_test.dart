@@ -199,6 +199,64 @@ void main() {
       expect(cloud.enabled, false);
     },
   );
+  test('connection starts registration automatically exactly once', () async {
+    var calls = 0;
+    final cloud = VoiceCloudService(
+      api: api((name, data, _) async {
+        calls++;
+        return registration(data['deviceId'] as String);
+      }),
+    );
+    addTearDown(cloud.dispose);
+    cloud.startForConnection('AA:BB:CC:DD:EE:01');
+    await Future<void>.delayed(Duration.zero);
+    expect(cloud.enabled, true);
+    expect(calls, 1);
+    cloud.startForConnection('AA:BB:CC:DD:EE:01');
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, 1);
+  });
+  test(
+    'new connection automatically activates after an old request finishes',
+    () async {
+      var calls = 0;
+      final pending = Completer<Object?>();
+      final cloud = VoiceCloudService(
+        api: api((name, data, _) async {
+          calls++;
+          return calls == 1
+              ? pending.future
+              : registration(data['deviceId'] as String);
+        }),
+      );
+      addTearDown(cloud.dispose);
+      cloud.startForConnection('AA:BB:CC:DD:EE:01');
+      cloud.setConnection(null);
+      cloud.startForConnection('AA:BB:CC:DD:EE:02');
+      pending.complete(registration('AABBCCDDEE01'));
+      await Future<void>.delayed(Duration.zero);
+      expect(cloud.deviceId, 'AABBCCDDEE02');
+      expect(calls, 2);
+    },
+  );
+  test(
+    'automatic registration error is shown without an endless retry loop',
+    () async {
+      var calls = 0;
+      final cloud = VoiceCloudService(
+        api: api((_, _, _) async {
+          calls++;
+          throw StateError('registration failed');
+        }),
+      );
+      addTearDown(cloud.dispose);
+      cloud.startForConnection('AA:BB:CC:DD:EE:01');
+      await Future<void>.delayed(Duration.zero);
+      expect(cloud.enabled, false);
+      expect(cloud.status, contains('失敗'));
+      expect(calls, 1);
+    },
+  );
   test('invalid IDs and empty audio do not reach the server', () async {
     var calls = 0;
     final service = api((_, _, _) async {
