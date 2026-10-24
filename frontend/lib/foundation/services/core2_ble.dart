@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'voice_link.dart';
+import 'voice_transfer.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
@@ -7,6 +10,20 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 class Core2Ble extends ChangeNotifier {
   static final serviceId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000001');
   static final statusId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000002');
+  static final voiceDataId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000005');
+  static final voiceControlId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000006');
+  VoiceLink? _voice;
+  BluetoothCharacteristic? _voiceData, _voiceControl;
+  bool voiceStarting = false;
+  bool voiceListening = false;
+  String voiceStatus = '音声受信は未開始';
+  String? audioPath;
+  int voiceReceived = 0, voiceExpected = 0;
+  int _audioGeneration = 0;
+  Future<void> _saveQueue = Future.value();
+  bool get canReceiveVoice =>
+      ready && _voiceData != null && _voiceControl != null;
+
   final Map<String, ScanResult> _results = {};
   final List<String> messages = [];
   final List<StreamSubscription<dynamic>> _subscriptions = [];
@@ -121,6 +138,7 @@ class Core2Ble extends ChangeNotifier {
           ready = false;
           device = null;
           status = '切断されました';
+          _resetVoice();
           unawaited(_values?.cancel());
           _log('切断');
         }
@@ -131,6 +149,12 @@ class Core2Ble extends ChangeNotifier {
         if (service.uuid != serviceId) continue;
         for (final value in service.characteristics) {
           if (value.uuid == statusId) characteristic = value;
+          if (value.uuid == voiceDataId && value.properties.notify) {
+            _voiceData = value;
+          }
+          if (value.uuid == voiceControlId && value.properties.write) {
+            _voiceControl = value;
+          }
         }
       }
       if (characteristic == null || !characteristic.properties.notify) {
@@ -151,6 +175,7 @@ class Core2Ble extends ChangeNotifier {
       ready = true;
       status = '接続済み・受信待ち';
       _log('Notify購読開始');
+      if (!canReceiveVoice) _log('音声用特性がありません。Core2側の実装が必要です');
     } catch (e) {
       _log('接続失敗: $e');
       await disconnect();
@@ -161,8 +186,88 @@ class Core2Ble extends ChangeNotifier {
     }
   }
 
+  void _resetVoice() {
+    final previous = _voice;
+    _voice = null;
+    unawaited(previous?.close());
+    _voiceData = null;
+    _voiceControl = null;
+    voiceListening = false;
+    voiceStarting = false;
+    _audioGeneration++;
+    voiceReceived = voiceExpected = 0;
+    voiceStatus = '音声受信は未開始';
+  }
+
+  Future<void> startVoice() async {
+    if (!canReceiveVoice || voiceStarting || voiceListening) return;
+    voiceStarting = true;
+    _refresh();
+    final target = device!;
+    final generation = _audioGeneration;
+    bool current() => !_disposed && generation == _audioGeneration;
+    final link = VoiceLink(
+      _voiceData!,
+      _voiceControl!,
+      onStatus: (text) {
+        if (!current()) return;
+        voiceStatus = text;
+        _log(text);
+      },
+      onProgress: (received, expected) {
+        if (!current()) return;
+        voiceReceived = received;
+        voiceExpected = expected;
+        voiceStatus = '音声受信中';
+        _refresh();
+      },
+      onAudio: (pcm) {
+        // Serialize saves so a newer recording cannot be overwritten by an older one.
+        _saveQueue = _saveQueue.then((_) => _saveVoice(pcm, generation));
+      },
+    );
+    _voice = link;
+    try {
+      await link.start(target);
+      if (current() && device == target) voiceListening = true;
+    } catch (e) {
+      await link.close();
+      if (current()) {
+        _voice = null;
+        voiceStatus = '音声受信の開始に失敗: $e';
+        _log(voiceStatus);
+      }
+    } finally {
+      if (current()) {
+        voiceStarting = false;
+        _refresh();
+      }
+    }
+  }
+
+  Future<void> _saveVoice(Uint8List pcm, int generation) async {
+    if (_disposed || generation != _audioGeneration) return;
+    try {
+      final directory = Directory('${Directory.systemTemp.path}/core2_voice');
+      await directory.create(recursive: true);
+      final temporary = File('${directory.path}/latest.wav.part');
+      await temporary.writeAsBytes(voiceWav(pcm), flush: true);
+      final saved = await temporary.rename('${directory.path}/latest.wav');
+      if (_disposed || generation != _audioGeneration) return;
+      audioPath = saved.path;
+      voiceStatus =
+          '音声受信・一時保存完了（PCM ${pcm.length} bytes / ${pcm.length / 32000}秒）';
+      _log(voiceStatus);
+    } catch (e) {
+      if (_disposed || generation != _audioGeneration) return;
+      voiceStatus = 'WAV保存失敗: $e';
+      _log(voiceStatus);
+    }
+  }
+
   Future<void> disconnect() async {
     ready = false;
+    _resetVoice();
     final previous = device;
     device = null;
     await _values?.cancel();
@@ -189,5 +294,3 @@ class Core2Ble extends ChangeNotifier {
     super.dispose();
   }
 }
-
-
