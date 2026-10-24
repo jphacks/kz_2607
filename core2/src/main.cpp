@@ -17,6 +17,12 @@ constexpr char kServiceUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000001";
 constexpr char kStatusUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000002";
 constexpr unsigned long kPeerConnectionAgeMs = 6000;
 
+constexpr int kModeButtonX = 242;
+constexpr int kModeButtonY = 74;
+constexpr int kModeButtonWidth = 72;
+constexpr int kModeButtonHeight = 30;
+bool playMode = true;
+
 volatile bool connected = false;
 volatile bool connectionChanged = true;
 uint16_t peerConnectionHandle = UINT16_MAX;
@@ -73,7 +79,33 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   }
 };
 
+void drawModeButton() {
+  M5.Display.fillRoundRect(kModeButtonX, kModeButtonY, kModeButtonWidth,
+                           kModeButtonHeight, 5, TFT_DARKGREY);
+  M5.Display.setTextColor(TFT_WHITE, TFT_DARKGREY);
+  M5.Display.setTextSize(1);
+  M5.Display.setCursor(kModeButtonX + (playMode ? 19 : 23), kModeButtonY + 11);
+  M5.Display.print(playMode ? "DEBUG" : "PLAY");
+}
+
+bool updateScreenMode() {
+  if (!M5.Touch.getCount()) return false;
+  const auto& touch = M5.Touch.getDetail();
+  if (!touch.wasPressed() || touch.x < kModeButtonX ||
+      touch.x >= kModeButtonX + kModeButtonWidth ||
+      touch.y < kModeButtonY || touch.y >= kModeButtonY + kModeButtonHeight) {
+    return false;
+  }
+  playMode = !playMode;
+  return true;
+}
+
 void drawScreen() {
+  if (playMode) {
+    M5.Display.fillScreen(TFT_BLACK);
+    drawModeButton();
+    return;
+  }
   M5.Display.fillScreen(TFT_NAVY);
   M5.Display.setTextColor(TFT_WHITE, TFT_NAVY);
   M5.Display.setTextSize(2);
@@ -157,6 +189,7 @@ void drawScreen() {
   }
   M5.Display.setCursor(16, 230);
   M5.Display.print("Hold A to talk");
+  drawModeButton();
 }
 
 void startBle() {
@@ -201,6 +234,7 @@ void setup() {
 
 void loop() {
   M5.update();
+  const bool modeChanged = updateScreenMode();
   voiceUpdate(connected && voiceTransferConfigured() && !replyReceiverBusy() &&
               !petConfigExchangePending());
   voiceTransferUpdate(connected);
@@ -250,14 +284,15 @@ void loop() {
       replyReceiverReset();
       petConfigReset();
     }
-    drawScreen();
+    if (!playMode || modeChanged) drawScreen();
     lastVoiceRevision = voiceRevision();
     lastReplyRevision = replyReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
     lastPetRevision = petConfigRevision();
     lastDrawStepCount = steps;
     lastDraw = millis();
-  } else if (((voiceRevision() != lastVoiceRevision ||
+  } else if (modeChanged ||
+             ((voiceRevision() != lastVoiceRevision ||
                replyReceiverRevision() != lastReplyRevision) &&
               ((!voiceRecording() && !replyReceiverReceiving()) ||
                millis() - lastDraw >= 200)) ||
@@ -266,7 +301,7 @@ void loop() {
               millis() - lastDraw >= 250) ||
               (steps != lastDrawStepCount && millis() - lastDraw >= 250) ||
              (!audioBusy && millis() - lastDraw >= 1000)) {
-    drawScreen();
+    if (!playMode || modeChanged) drawScreen();
     lastVoiceRevision = voiceRevision();
     lastReplyRevision = replyReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
