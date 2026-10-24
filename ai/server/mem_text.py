@@ -60,7 +60,11 @@ def dont_know_reply(kind: str, p: PetProfile, only_owner: bool = False) -> str:
 
 
 def template_reply(kind: str, lines: List[str], p: PetProfile, label: str = "", says: Optional[List[str]] = None) -> str:
-    """思い出の1行目だけで作る決まった返事。前の代は journey_items の say（質問に合う値が先頭）を使う。"""
+    """思い出の1行目だけで作る決まった返事。前の代は journey_items の say（質問に合う値が先頭）を使う。
+    今の飼い主で says[0] があるのは直近の会話（まだ要約されていない発言）を引用するとき"""
+    if kind == "current" and says and says[0]:
+        s = says[0].rstrip("。")
+        return _baby(s + "。", p) if p.stage == 1 else s + "。"
     if kind != "current" and says:
         s = says[0].rstrip("。")
         if p.stage == 1:

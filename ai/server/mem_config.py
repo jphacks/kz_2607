@@ -15,4 +15,5 @@ MEMORY_BABY = os.environ.get("MEMORY_BABY", "template")   # template（赤ちゃ
 MEMORY_RURI = os.environ.get("MEMORY_RURI", "auto").lower()
 RURI_MODEL = os.environ.get("RURI_MODEL", "cl-nagoya/ruri-v3-130m")
 MEMORY_TOPK = 2
+MEMORY_RECENT_TURNS = int(os.environ.get("MEMORY_RECENT_TURNS", "8"))  # まだ要約されていない直近の会話（発言の数）を思い出の候補にする。0 で使わない
 Q_PREFIX, D_PREFIX = "検索クエリ: ", "検索文書: "
