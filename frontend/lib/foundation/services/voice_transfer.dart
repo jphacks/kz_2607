@@ -7,8 +7,34 @@ class VoiceTransfer {
     required this.ack,
     required this.onAudio,
     required this.onProgress,
+    this.onMetrics,
   });
   final int chunkSize;
+  final void Function(Map<String, Object?>)? onMetrics;
+  final Stopwatch _clock = Stopwatch();
+  int _duplicates = 0, _outOfOrder = 0, _dataPackets = 0, _startRetries = 0;
+  void _metrics(bool success) {
+    _clock.stop();
+    onMetrics?.call({
+      'direction': 'up',
+      'success': success,
+      'session': _session,
+      'sampleCount': _count,
+      'codec': _codec,
+      'audioBytes': _received,
+      'expectedBytes': _buffer?.length,
+      'chunkSize': chunkSize,
+      'ackWindow': 4,
+      'packets': _next - 1,
+      'dataPackets': _dataPackets,
+      'duplicatePackets': _duplicates,
+      'outOfOrderPackets': _outOfOrder,
+      'startRetriesObserved': _startRetries,
+      'duplicateRate': _dataPackets == 0 ? 0.0 : _duplicates / _dataPackets,
+      'receiveUs': _clock.elapsedMicroseconds,
+    });
+  }
+
   final void Function(int session, int sequence) ack;
   final void Function(Uint8List pcm) onAudio;
   final void Function(int received, int expected) onProgress;
@@ -17,6 +43,7 @@ class VoiceTransfer {
   int _completedSession = -1, _completedEnd = -1;
   bool get active => _buffer != null;
   void reset() {
+    if (active) _metrics(false);
     _buffer = null;
     _session = -1;
   }
@@ -38,9 +65,15 @@ class VoiceTransfer {
         if (count != _count || codec != _codec) {
           throw const FormatException('同一セッションのSTART内容が変わりました');
         }
+        _startRetries++;
         ack(session, 0);
         return;
       }
+      if (active) _metrics(false);
+      _clock
+        ..reset()
+        ..start();
+      _duplicates = _outOfOrder = _dataPackets = _startRetries = 0;
       _session = session;
       _count = count;
       _codec = codec;
@@ -68,6 +101,9 @@ class VoiceTransfer {
       if (length == 0 || packet.length != length + 4) {
         throw const FormatException('DATAのサイズが不正です');
       }
+      _dataPackets++;
+      if (sequence < _next) _duplicates++;
+      if (sequence > _next) _outOfOrder++;
       if (sequence == _next) {
         _buffer!.setRange(_received, _received + length, packet, 4);
         _received += length;
@@ -87,6 +123,7 @@ class VoiceTransfer {
           _received != _buffer!.length) {
         throw const FormatException('音声が揃う前にENDを受信しました');
       }
+      _metrics(true);
       final pcm = decodeVoice(_buffer!, _count, _codec);
       _buffer = null;
       _completedSession = session;
