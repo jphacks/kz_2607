@@ -9,8 +9,8 @@ class BottomNavigation extends StatelessWidget {
   });
   final ValueChanged<int> onSelected;
   final int selectedIndex;
-  static const labels = ['いま', '旅', '見守る', '手紙'];
-  static const symbols = ['●', '⌁', '♡', '✉'];
+  static const labels = ['いま', '見守る', '手紙'];
+  static const symbols = ['●', '♡', '✉'];
   @override
   Widget build(BuildContext context) => Material(
     color: AppColors.surface,
