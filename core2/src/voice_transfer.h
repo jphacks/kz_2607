@@ -7,3 +7,4 @@ void voiceTransferUpdate(bool connected);
 void voiceTransferReset();
 void voiceTransferClearConfiguration();
 bool voiceTransferConfigured();
+bool voiceTransferSending();

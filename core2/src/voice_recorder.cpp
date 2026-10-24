@@ -11,7 +11,7 @@ constexpr size_t kMaxSamples = kSampleRate * 5;
 constexpr size_t kMinSamples = kSampleRate / 5;
 constexpr size_t kBlockSamples = 512;
 
-enum class State { Idle, Recording, Ready, Sending, Error };
+enum class State { Idle, Recording, Ready, Sending, PlayingReply, Error };
 State state = State::Idle;
 int16_t* pcm = nullptr;
 uint8_t* encoded = nullptr;
@@ -135,6 +135,14 @@ void voiceUpdate(bool canRecord) {
   const bool newPress = pressed && !wasPressed;
   wasPressed = pressed;
 
+  if (state == State::PlayingReply) {
+    if (!M5.Speaker.isPlaying()) {
+      M5.Speaker.end();
+      setState(State::Idle, "Reply playback finished");
+    }
+    return;
+  }
+
   if (!canRecord) {
     if (state == State::Recording) voiceCancel("Connection lost");
     return;
@@ -168,6 +176,7 @@ void voiceUpdate(bool canRecord) {
 
 void voiceCancel(const char* reason) {
   if (state == State::Recording) M5.Mic.end();
+  if (state == State::PlayingReply) M5.Speaker.end();
   queuedSamples = 0;
   sampleCount = 0;
   setState(State::Idle, reason);
@@ -175,6 +184,20 @@ void voiceCancel(const char* reason) {
 
 bool voiceRecording() { return state == State::Recording; }
 bool voiceReady() { return state == State::Ready; }
+bool voiceCanPlayReply() { return state == State::Idle || state == State::Error; }
+bool voicePlayingReply() { return state == State::PlayingReply; }
+bool voicePlayReply(const int16_t* samples, size_t count) {
+  if (!voiceCanPlayReply() || samples == nullptr || count == 0) return false;
+  M5.Mic.end();
+  if (!M5.Speaker.begin()) return false;
+  M5.Speaker.setVolume(128);
+  if (!M5.Speaker.playRaw(samples, count, 16000)) {
+    M5.Speaker.end();
+    return false;
+  }
+  setState(State::PlayingReply, "Playing reply...");
+  return true;
+}
 size_t voiceSampleCount() { return sampleCount; }
 size_t voiceEncodedSize() { return (sampleCount + 1) / 2; }
 const uint8_t* voiceEncodedData() { return encoded; }
