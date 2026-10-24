@@ -4,7 +4,7 @@
 
 namespace {
 
-constexpr char kDeviceName[] = "M5StackCore2-1";
+constexpr char kDeviceName[] = "M5StackCore2";
 constexpr char kServiceUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000001";
 constexpr char kStatusUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000002";
 
