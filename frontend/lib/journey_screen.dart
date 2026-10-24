@@ -5,13 +5,14 @@ import 'designsystem/bottom_navigation.dart';
 import 'designsystem/journey_entry.dart';
 import 'foundation/app_colors.dart';
 import 'foundation/app_spacing.dart';
+import 'watch_screen.dart';
 
 /// Sample content from the approved Figma. Server data will replace it later.
 class JourneyScreen extends StatelessWidget {
   const JourneyScreen({super.key});
 
   void _showInfo(BuildContext context, int index) {
-    final message = index == 2 ? '旅立ったペットの見守り画面は準備中です。' : '届いた手紙を読む画面は準備中です。';
+    const message = '届いた手紙を読む画面は準備中です。';
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -141,6 +142,12 @@ class JourneyScreen extends StatelessWidget {
                   selectedIndex: 1,
                   onSelected: (index) {
                     if (index == 1) return;
+                    if (index == 2) {
+                      Navigator.of(context).pushReplacement<void, void>(
+                        MaterialPageRoute(builder: (_) => const WatchScreen()),
+                      );
+                      return;
+                    }
                     if (index == 0) {
                       Navigator.pop(context);
                       return;

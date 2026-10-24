@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'core2_connection_screen.dart';
 import 'journey_screen.dart';
+import 'watch_screen.dart';
 import 'designsystem/action_button.dart';
 import 'designsystem/app_card.dart';
 import 'designsystem/bottom_navigation.dart';
@@ -259,6 +260,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: BottomNavigation(
                     onSelected: (index) {
                       if (index == 0) return;
+                      if (index == 2) {
+                        Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => const WatchScreen(),
+                          ),
+                        );
+                        return;
+                      }
                       if (index == 1) {
                         Navigator.of(context).push<void>(
                           MaterialPageRoute(
@@ -268,10 +277,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         return;
                       }
                       final title = BottomNavigation.labels[index];
-                      _showInfo(title, switch (index) {
-                        2 => '旅立ったペットの見守り画面は準備中です。',
-                        _ => '届いた手紙を読む画面は準備中です。',
-                      });
+                      _showInfo(title, '届いた手紙を読む画面は準備中です。');
                     },
                   ),
                 ),

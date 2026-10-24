@@ -42,10 +42,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(const MyApp(home: HomeScreen()));
-    for (final entry in {
-      '見守る': '旅立ったペットの見守り画面は準備中です。',
-      '手紙': '届いた手紙を読む画面は準備中です。',
-    }.entries) {
+    for (final entry in {'手紙': '届いた手紙を読む画面は準備中です。'}.entries) {
       await tester.tap(find.text(entry.key));
       await tester.pumpAndSettle();
       expect(find.text(entry.value), findsOneWidget);
