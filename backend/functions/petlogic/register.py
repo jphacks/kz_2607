@@ -4,6 +4,7 @@ import re
 from google.api_core.exceptions import AlreadyExists
 
 from .errors import ApiError
+from .users import ensure_first_pet_quietly
 
 DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:\-]{1,64}$")
 
@@ -72,4 +73,5 @@ def register_device(db, uid, device_id, now):
         # ほぼ同時に、別の呼び出しが先に登録した。そちらの結果を返す。
         return _existing_result(device_id, device_ref.get().to_dict(), uid)
 
+    ensure_first_pet_quietly(db, uid, now)  # 初めてのペットなら、users/{uid}.firstPetId に記録する
     return {"deviceId": device_id, "petId": pet_ref.id, "isNew": True}

@@ -45,15 +45,17 @@
 エラー: `invalid-argument`(token の形が違う)、`unauthenticated`。1人が複数の端末を使っていても、全部に届く。
 
 ## getLetters
-自分が**最初に作った**ペットから届いた手紙を、新しい順に返す(最大30通)。ホーム画面や手紙の画面を開くときに呼ぶ。
+**一番最初に作った1体**のペットから届いた、自分宛ての手紙を、新しい順に返す(最大30通)。ホーム画面や手紙の画面を開くときに呼ぶ。
 
 | 項目 | 内容 |
-| --- | --- |
+|---|---|
 | 送る | なし |
-| 返る | `{ "letters": [ { letterId, petId, petName, title, body, generation, createdAt } ] }` |
+| 返る | `{ "firstPetId": "ペットID" または null, "letters": [ { letterId, petId, petName, title, body, generation, createdAt } ] }` |
 
+- 「一番最初に作った1体」は、`users/{uid}/createdPets` の作成日時が最も古いペット。あとから作った2体目以降の手紙は、返さない
+- まだペットを作っていない: `{ "firstPetId": null, "letters": [] }`
+- ペットはいるが手紙がまだない: `{ "firstPetId": "ペットID", "letters": [] }`
 - `createdAt` は、ISO形式の文字列。`petName` は未設定なら `null`
-- 手紙は、まだなければ空の配列
 - 通知をタップしたとき: 通知の `data` に `type: "letter"`、`petId`、`letterId` が入っている。`getLetters` の結果から、その `letterId` を探して表示する
 
 ## 手紙のしくみ
@@ -306,3 +308,11 @@ appearance: {
 - 軸の値が同じとき(生まれたてなど)は、ペットごとに決まった順で選ぶ。同じペットなら、いつも同じ結果になる。
 - 進化(`talkToPet` の `evolved: true`)のあとは、`getPet` を呼び直すと、新しいキーが取れる。
 - 絵のデザインは、人型ではない生き物にする(段階が進んでも、人型にはしない)。
+
+## 最初のペットの記録(`users/{uid}.firstPetId`)
+
+- ユーザーが**一番最初に作ったペット**のIDを、`users/{uid}` の `firstPetId` に記録する。`registerDevice` で、初めてペットが作られたときに書かれる。
+- 一度決まったら、変わらない(あとから2体目、3体目を作っても同じ)。
+- 以前から使っているユーザーは、`getLetters` を呼んだときに、自動で記録される(作成日時が最古のペット)。
+- 「一番最初」は、`users/{uid}/createdPets` の作成日時が最も古いもの。同じなら、IDの小さいほう。
+- 手紙(`getLetters`・毎朝9時の配信)は、このペットだけが対象。
