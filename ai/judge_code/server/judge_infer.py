@@ -25,9 +25,9 @@ from collections import OrderedDict
 
 import torch
 
-from kz_2607.ai.judge_code.ng_words import check as ng_check
-from kz_2607.ai.judge_code.pet_judge_data import SPEAKER_IDS
-from kz_2607.ai.judge_code.pet_judge_model import load_judge, unsafe_prob
+from ng_words import check as ng_check
+from pet_judge_data import SPEAKER_IDS
+from pet_judge_model import load_judge, unsafe_prob
 
 
 class PetJudgeRunner:

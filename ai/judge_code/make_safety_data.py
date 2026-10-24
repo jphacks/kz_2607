@@ -147,7 +147,7 @@ if __name__ == "__main__":
     except FileNotFoundError:
         pass
     try:                                         # 安全専用の物差しとも重ならないように
-        import kz_2607.ai.judge_code.make_safety_eval as E
+        import make_safety_eval as E
         protected |= {norm(t) for t in E.ABUSE + E.DISCRIMINATION + E.SEXUAL + E.ROUGH_BUT_SAFE}
     except ImportError:
         pass

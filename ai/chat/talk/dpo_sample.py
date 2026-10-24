@@ -17,7 +17,7 @@ from pathlib import Path
 
 import requests
 
-from kz_2607.ai.chat.talk.eval_generate import URL, lora_ids, AXIS_ORDER
+from eval_generate import URL, lora_ids, AXIS_ORDER
 
 HERE = Path(__file__).parent
 
