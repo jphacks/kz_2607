@@ -7,6 +7,7 @@ from firebase_functions import firestore_fn, https_fn, options, scheduler_fn
 from firebase_functions.params import SecretParam
 
 from petlogic.adapters import google_stt, google_tts, http_ai
+from petlogic.birth import set_initial_personality
 from petlogic.errors import ApiError
 from petlogic.exchange import cancel_exchange, get_exchange_result, report_exchange
 from petlogic.journey import finish_journeys, start_journeys
@@ -100,6 +101,13 @@ def setPetName(req: https_fn.CallableRequest):
     """誕生のときに、ペットの名前をつける(1回だけ。あとから変えられない)。入力: deviceId、name。"""
     uid = _require_uid(req)
     return _run(lambda: set_pet_name(firestore.client(), uid, req.data))
+
+
+@https_fn.on_call()
+def setInitialPersonality(req: https_fn.CallableRequest):
+    """誕生のときに、6問の回答から性格の初期値を決める(1回だけ)。入力: deviceId、answers、questionnaireVersion。"""
+    uid = _require_uid(req)
+    return _run(lambda: set_initial_personality(firestore.client(), uid, req.data, _now()))
 
 
 @https_fn.on_call()

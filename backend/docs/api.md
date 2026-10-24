@@ -332,6 +332,27 @@ appearance: {
 - 「一番最初」は、`users/{uid}/createdPets` の作成日時が最も古いもの。同じなら、IDの小さいほう。
 - 手紙(`getLetters`・毎朝9時の配信)は、このペットだけが対象。
 
+## setInitialPersonality(誕生のときに性格の初期値を決める)
+
+6問4択の回答から、6軸の初期値を決める。**1体につき1回だけ**。決める値は、アプリの計算ではなく、回答からサーバーで計算する(アプリの値は表示用)。
+
+| 入力 | 内容 |
+|---|---|
+| `deviceId` | 端末ID |
+| `answers` | 0〜3の整数が6個。**軸の順**: `activity`, `friendly`, `talkative`, `logical`, `curious`, `nightowl`(軸の名前をキーにした辞書でもよい) |
+| `questionnaireVersion` | 質問のバージョン(1以上の整数) |
+
+- 回答と値: 0 → 0.2、1 → 0.4、2 → 0.6、3 → 0.8
+- 返る: `{status: "ok", petId, personalityAxes, birthTrait, appearance, alreadySet}`
+  - `personalityAxes`: `{activity, friendly, talkative, logical, curious, nightowl}`(0〜1)
+  - `birthTrait`: いちばん強い軸。AIの名前(`active` / `affection` / `talkative` / `logic` / `curious` / `night`)。同じ値なら、`active → affection → talkative → logic → curious → night` の順
+  - `appearance`: 赤ちゃんの絵のキー。`{stage: "baby", primary, secondary, key, fallbackKey}`
+- 保存先(`pets/{petId}`): `personalityAxes`、`axesBase`(性格が動ける幅の基準。同じ値)、`birthAnswers`、`questionnaireVersion`、`birthTrait`
+- 送り直し: 同じ回答・同じバージョンなら、成功(`alreadySet: true`)。違うなら、エラー(`personality_already_set`)
+- できる人: そのペットを作った本人が、いまも持っていて、**交換前の1代目で、まだ話していない**ときだけ。それ以外は `personality_not_allowed`(作った人でないと `not_creator`)
+- 入力の誤り(個数・範囲・整数でない・バージョン)は `invalid-argument`(`invalid_answers` / `invalid_version`)
+- 性格の更新の基準は `axesBase` に統一(別の保存先は作らない)
+
 ## setPetName(誕生のときに名前をつける)
 
 誕生の画面で、ペットの名前を決めたあとに、**1回だけ**呼ぶ。つけた名前は、ずっと変わらない(交換しても、次の飼い主になっても同じ)。名前は、`getPet` の `name`、手紙、AIへの送信(`petName`)に使われる。
