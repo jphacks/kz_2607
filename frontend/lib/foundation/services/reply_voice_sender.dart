@@ -10,6 +10,7 @@ class ReplyVoiceSender {
     required Stream<List<int>> acknowledgements,
     this.ackTimeout = const Duration(milliseconds: 700),
     this.attempts = 7,
+    this.onMetrics,
   }) {
     _subscription = acknowledgements.listen(
       _receive,
@@ -22,6 +23,10 @@ class ReplyVoiceSender {
   final Future<void> Function(List<int>, bool withoutResponse) write;
   final Duration ackTimeout;
   final int attempts;
+  final void Function(Map<String, Object?>)? onMetrics;
+  final Stopwatch _ackWait = Stopwatch();
+  int _timeouts = 0, _writes = 0, _resent = 0;
+  final Set<int> _sequences = {};
   StreamSubscription<List<int>>? _subscription;
   Completer<void>? _pending;
   bool _closed = false, _sending = false;
@@ -70,10 +75,16 @@ class ReplyVoiceSender {
         await send();
         _check();
         if (_ack >= target) return;
-        await pending.future.timeout(ackTimeout);
+        _ackWait.start();
+        try {
+          await pending.future.timeout(ackTimeout);
+        } finally {
+          _ackWait.stop();
+        }
         _check();
         if (_ack >= target) return;
       } on TimeoutException {
+        _timeouts++;
         if (attempt == attempts - 1) {
           throw StateError('Core2から音声の受信確認が届きませんでした');
         }
@@ -88,6 +99,7 @@ class ReplyVoiceSender {
     required Uint8List bytes,
     required int sampleCount,
     required int chunkSize,
+    int cloudToSendUs = 0,
     void Function(int sent, int total)? onProgress,
   }) async {
     if (_closed || _sending) throw StateError('返答音声を転送できません');
@@ -106,6 +118,12 @@ class ReplyVoiceSender {
     _maxSent = 0;
     _error = null;
     retryCount = 0;
+    _timeouts = _writes = _resent = 0;
+    _sequences.clear();
+    _ackWait.reset();
+    final clock = Stopwatch()..start();
+    int? startAckUs, dataUs, endAckUs;
+    var success = false;
     try {
       onProgress?.call(0, bytes.length);
       await _untilAck(
@@ -121,6 +139,7 @@ class ReplyVoiceSender {
           chunkSize,
         ], false),
       );
+      startAckUs = clock.elapsedMicroseconds;
       for (var first = 1; first <= packets; first += 4) {
         final last = min(first + 3, packets);
         await _untilAck(last, () async {
@@ -128,6 +147,8 @@ class ReplyVoiceSender {
             _check();
             final offset = (sequence - 1) * chunkSize;
             _maxSent = max(_maxSent, sequence);
+            _writes++;
+            if (!_sequences.add(sequence)) _resent++;
             await write([
               2,
               _session,
@@ -139,6 +160,8 @@ class ReplyVoiceSender {
         });
         onProgress?.call(min(last * chunkSize, bytes.length), bytes.length);
       }
+      dataUs = clock.elapsedMicroseconds - startAckUs;
+      final endStartUs = clock.elapsedMicroseconds;
       _maxSent = packets + 1;
       await _untilAck(
         packets + 1,
@@ -149,9 +172,35 @@ class ReplyVoiceSender {
           (packets + 1) >> 8,
         ], false),
       );
+      endAckUs = clock.elapsedMicroseconds - endStartUs;
+      success = true;
     } finally {
       _pending = null;
       _sending = false;
+      clock.stop();
+      onMetrics?.call({
+        'direction': 'down',
+        'success': success,
+        'session': _session,
+        'audioBytes': bytes.length,
+        'sampleCount': sampleCount,
+        'chunkSize': chunkSize,
+        'packets': packets,
+        'dataWrites': _writes,
+        'resentPackets': _resent,
+        'retransmitRate': _writes == 0 ? 0.0 : _resent / _writes,
+        'retries': retryCount,
+        'ackTimeouts': _timeouts,
+        'ackWindow': 4,
+        'cloudToStartAckUs': startAckUs == null
+            ? null
+            : cloudToSendUs + startAckUs,
+        'dataUs': dataUs,
+        'endAckUs': endAckUs,
+        'ackWaitUs': _ackWait.elapsedMicroseconds,
+        'transferUs': clock.elapsedMicroseconds,
+        'totalUs': cloudToSendUs + clock.elapsedMicroseconds,
+      });
     }
   }
 

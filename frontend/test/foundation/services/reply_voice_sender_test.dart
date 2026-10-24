@@ -10,8 +10,10 @@ void main() {
       final ack = StreamController<List<int>>(sync: true);
       final frames = <List<int>>[];
       final progress = <int>[];
+      final metrics = <Map<String, Object?>>[];
       final audio = Uint8List.fromList(List.generate(70, (i) => i));
       final sender = ReplyVoiceSender(
+        onMetrics: metrics.add,
         acknowledgements: ack.stream,
         write: (p, fast) async {
           frames.add(List.of(p));
@@ -34,6 +36,7 @@ void main() {
         bytes: audio,
         sampleCount: 140,
         chunkSize: 16,
+        cloudToSendUs: 1000,
         onProgress: (sent, _) => progress.add(sent),
       );
       expect(frames.first[0], 1);
@@ -43,6 +46,18 @@ void main() {
         audio,
       );
       expect(progress, [0, 64, 70]);
+      final result = metrics.single;
+      expect(result['success'], true);
+      expect(result['resentPackets'], 0);
+      expect(
+        result['totalUs'],
+        greaterThanOrEqualTo(
+          (result['cloudToStartAckUs'] as int) +
+              (result['dataUs'] as int) +
+              (result['endAckUs'] as int),
+        ),
+      );
+      expect(result['totalUs'], (result['transferUs'] as int) + 1000);
       await sender.close();
       await ack.close();
     },
@@ -50,7 +65,9 @@ void main() {
   test('lost cumulative DATA and END ACKs resend identical packets', () async {
     final ack = StreamController<List<int>>(sync: true);
     var windowEnds = 0, ends = 0;
+    final metrics = <Map<String, Object?>>[];
     final sender = ReplyVoiceSender(
+      onMetrics: metrics.add,
       acknowledgements: ack.stream,
       ackTimeout: const Duration(milliseconds: 5),
       attempts: 3,
@@ -66,13 +83,25 @@ void main() {
     expect(windowEnds, 2);
     expect(ends, 2);
     expect(sender.retryCount, 2);
+    expect(metrics.single['success'], true);
+    expect(metrics.single['ackWindow'], 4);
+    expect(metrics.single['packets'], 4);
+    expect(metrics.single['dataWrites'], 8);
+    expect(metrics.single['resentPackets'], 4);
+    expect(metrics.single['retransmitRate'], .5);
+    expect(metrics.single['ackTimeouts'], 2);
+    expect(metrics.single['retries'], 2);
+    expect(metrics.single['ackWaitUs'], greaterThan(0));
+    expect(metrics.single['endAckUs'], isA<int>());
     await sender.close();
     await ack.close();
   });
   test('future ACK and another session cannot confirm unsent data', () async {
     final ack = StreamController<List<int>>(sync: true);
     var dataFrames = 0;
+    final metrics = <Map<String, Object?>>[];
     final sender = ReplyVoiceSender(
+      onMetrics: metrics.add,
       acknowledgements: ack.stream,
       ackTimeout: const Duration(milliseconds: 5),
       attempts: 2,
@@ -89,6 +118,10 @@ void main() {
       throwsStateError,
     );
     expect(dataFrames, 0);
+    expect(metrics.single['success'], false);
+    expect(metrics.single['cloudToStartAckUs'], isNull);
+    expect(metrics.single['dataUs'], isNull);
+    expect(metrics.single['endAckUs'], isNull);
     await sender.close();
     await ack.close();
   });

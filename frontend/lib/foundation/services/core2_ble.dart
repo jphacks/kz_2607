@@ -4,6 +4,7 @@ import 'dart:io';
 import 'voice_link.dart';
 import 'voice_cloud_service.dart';
 import 'reply_voice_sender.dart';
+import 'voice_transfer_metrics.dart';
 import 'voice_transfer.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -15,6 +16,20 @@ class Core2Ble extends ChangeNotifier {
   static final voiceDataId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000005');
   static final voiceControlId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000006');
   final voiceCloud = VoiceCloudService();
+  final _metrics = VoiceTransferMetrics();
+  String? _conversationId;
+  String? _replyConversationId;
+  void _recordTransfer(Map<String, Object?> metrics) {
+    _metrics.record({
+      ...metrics,
+      'conversationId': metrics['direction'] == 'down'
+          ? _replyConversationId
+          : _conversationId,
+      'deviceId': metrics['deviceId'] ?? device?.remoteId.str,
+      'platform': Platform.operatingSystem,
+    }, _log);
+  }
+
   VoiceLink? _voice;
   ReplyVoiceSender? _reply;
   static final replyDataId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000007');
@@ -194,6 +209,12 @@ class Core2Ble extends ChangeNotifier {
         final data = replyData;
         final generation = _audioGeneration;
         final sender = ReplyVoiceSender(
+          onMetrics: (metrics) => _recordTransfer({
+            ...metrics,
+            'mtu': target.mtuNow,
+            'deviceId': target.remoteId.str,
+            'writeWithoutResponse': data.properties.writeWithoutResponse,
+          }),
           write: (bytes, withoutResponse) => data.write(
             bytes,
             withoutResponse:
@@ -222,6 +243,7 @@ class Core2Ble extends ChangeNotifier {
               bytes: bytes,
               sampleCount: count,
               chunkSize: chunk,
+              cloudToSendUs: voiceCloud.cloudReplyElapsedUs,
               onProgress: voiceCloud.replyProgress,
             );
           };
@@ -282,6 +304,15 @@ class Core2Ble extends ChangeNotifier {
     final link = VoiceLink(
       _voiceData!,
       _voiceControl!,
+      onMetrics: (metrics) {
+        if (metrics['success'] == true) {
+          _conversationId = DateTime.now()
+              .toUtc()
+              .microsecondsSinceEpoch
+              .toString();
+        }
+        _recordTransfer({...metrics, 'deviceId': target.remoteId.str});
+      },
       onStatus: (text) {
         if (!current()) return;
         voiceStatus = text;
@@ -296,6 +327,9 @@ class Core2Ble extends ChangeNotifier {
       },
       onAudio: (pcm) {
         if (!current()) return;
+        if (voiceCloud.enabled && !voiceCloud.busy) {
+          _replyConversationId = _conversationId;
+        }
         // Send this recording's bytes directly, never a possibly overwritten file.
         unawaited(voiceCloud.sendPcm(pcm));
         // Serialize saves so a newer recording cannot be overwritten by an older one.

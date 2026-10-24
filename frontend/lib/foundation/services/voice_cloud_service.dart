@@ -14,6 +14,8 @@ class VoiceCloudService extends ChangeNotifier {
   String status = '音声送信は無効です';
   String? transcript, replyText;
   Uint8List? replyAudio;
+  Stopwatch? _replyClock;
+  int get cloudReplyElapsedUs => _replyClock?.elapsedMicroseconds ?? 0;
   Future<void> Function(Uint8List bytes, int sampleCount)? sendReply;
   void Function()? cancelReply;
   bool _transferringReply = false;
@@ -118,6 +120,7 @@ class VoiceCloudService extends ChangeNotifier {
     _publish();
     try {
       final result = await _api.talkToPet(deviceId: id, petId: pet, pcm: pcm);
+      _replyClock = Stopwatch()..start();
       if (_disposed || epoch != _epoch) return;
       transcript = result['transcript'] as String;
       replyText = result['replyText'] as String;
@@ -180,6 +183,7 @@ class VoiceCloudService extends ChangeNotifier {
       }
       // No automatic retry: an ambiguous failure could duplicate a conversation.
     } finally {
+      _replyClock?.stop();
       _busy = false;
       _publish();
       _resumeAutoEnable();
