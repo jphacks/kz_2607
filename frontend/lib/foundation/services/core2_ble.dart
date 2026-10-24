@@ -123,9 +123,16 @@ class Core2Ble extends ChangeNotifier {
     final transport = _petConfig;
     final petId = voiceCloud.petId;
     final deviceId = voiceCloud.deviceId;
-    if (_disposed || !ready || target == null || transport == null ||
-        petId == null || deviceId == null ||
-        _syncingPetId || _syncedPetId == petId) return;
+    if (_disposed ||
+        !ready ||
+        target == null ||
+        transport == null ||
+        petId == null ||
+        deviceId == null ||
+        _syncingPetId ||
+        _syncedPetId == petId) {
+      return;
+    }
     if (deviceId != voiceCloud.connectionDeviceId) return;
     _syncingPetId = true;
     petConfigStatus = 'petIdをCore2へ送信中…';
@@ -175,7 +182,9 @@ class Core2Ble extends ChangeNotifier {
     try {
       final candidate = PendingExchange.fromMap(data);
       final controller = exchange;
-      if (!ready || _petConfig == null || controller == null ||
+      if (!ready ||
+          _petConfig == null ||
+          controller == null ||
           voiceCloud.deviceId != candidate.myDeviceId ||
           ((_syncedPetId != candidate.givenPetId &&
                   _syncedPetId != candidate.gotPetId) &&
@@ -196,8 +205,14 @@ class Core2Ble extends ChangeNotifier {
   Future<void> processExchange() async {
     final controller = exchange;
     final transport = _petConfig;
-    if (_disposed || !ready || controller == null || transport == null ||
-        controller.busy || controller.candidate == null) return;
+    if (_disposed ||
+        !ready ||
+        controller == null ||
+        transport == null ||
+        controller.busy ||
+        controller.candidate == null) {
+      return;
+    }
     await controller.process((message) async {
       await transport.sendMessage(message, ackType: 'exchange_result_ack');
     });
@@ -288,7 +303,9 @@ class Core2Ble extends ChangeNotifier {
             replyAck = value;
           }
           if (value.uuid == statusId) characteristic = value;
-          if (value.uuid == commandId && value.properties.write) command = value;
+          if (value.uuid == commandId && value.properties.write) {
+            command = value;
+          }
           if (value.uuid == voiceDataId && value.properties.notify) {
             _voiceData = value;
           }
