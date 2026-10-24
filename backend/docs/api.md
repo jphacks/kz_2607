@@ -327,3 +327,22 @@ appearance: {
 - 以前から使っているユーザーは、`getLetters` を呼んだときに、自動で記録される(作成日時が最古のペット)。
 - 「一番最初」は、`users/{uid}/createdPets` の作成日時が最も古いもの。同じなら、IDの小さいほう。
 - 手紙(`getLetters`・毎朝9時の配信)は、このペットだけが対象。
+
+## setPetName(誕生のときに名前をつける)
+
+誕生の画面で、ペットの名前を決めたあとに、**1回だけ**呼ぶ。つけた名前は、ずっと変わらない(交換しても、次の飼い主になっても同じ)。名前は、`getPet` の `name`、手紙、AIへの送信(`petName`)に使われる。
+
+| 入力 | 内容 |
+|---|---|
+| `deviceId` | 端末ID(自分の端末) |
+| `name` | 名前(前後の空白は取る。1〜12文字) |
+
+返る: `{ status: "ok", petId, name, alreadySet }`。`alreadySet` は、すでに同じ名前がついていたとき true(送り直しても大丈夫)。
+
+エラー:
+- `invalid-argument`(`reason: "invalid_name"`): 空、13文字以上、改行などの制御文字、URL・連絡先・指示のような文字、数字4桁以上
+- `failed-precondition`(`reason: "name_already_set"`): すでに違う名前がついている(`details.name` に、今の名前)
+- `permission-denied`(`reason: "not_creator"`): そのペットを作った人ではない(交換で受け取ったペットには、つけられない)
+- `permission-denied`: 自分の端末ではない / `not-found`: 端末が未登録
+
+名前をつける前は、`getPet` の `name` は `null`。誕生の画面で、`registerDevice` → `setPetName` の順に呼ぶ。
