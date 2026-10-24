@@ -48,7 +48,7 @@ class FirstPetJourney extends StatelessWidget {
                     ),
                   ),
                 ),
-                title: 'あなたとはじまった旅',
+                title: 'あなたとの思い出',
                 body: firstPet!.sharedDays,
               ),
               _JourneyStop(
@@ -62,7 +62,7 @@ class FirstPetJourney extends StatelessWidget {
                     ),
                   ),
                 ),
-                title: 'これまでの出会い',
+                title: '2代目からの思い出',
                 body: firstPet!.encounters,
               ),
               _JourneyStop(
@@ -76,7 +76,7 @@ class FirstPetJourney extends StatelessWidget {
                     ),
                   ),
                 ),
-                title: '旅はつづいています',
+                title: 'いまの飼い主との思い出',
                 body: firstPet!.summary,
                 current: true,
                 last: true,

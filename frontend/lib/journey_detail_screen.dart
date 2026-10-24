@@ -23,17 +23,85 @@ class JourneyDetailScreen extends StatelessWidget {
   final WatchPet pet;
   final JourneyStage stage;
 
-  String get _description => switch (stage) {
-    JourneyStage.beginning => pet.sharedDays,
-    JourneyStage.memories => pet.encounters,
-    JourneyStage.present => pet.summary.replaceAll(' / ', '\n'),
+  List<int> get _generations {
+    if (stage == JourneyStage.beginning) return [1];
+    if (stage == JourneyStage.present) return [pet.currentGeneration];
+    final generations =
+        pet.memories
+            .map((memory) => memory.generation)
+            .where(
+              (generation) =>
+                  generation >= 2 && generation < pet.currentGeneration,
+            )
+            .toSet()
+            .toList()
+          ..sort();
+    return generations;
+  }
+
+  String get _introduction => switch (stage) {
+    JourneyStage.beginning => 'あなたと${pet.name}が過ごした、はじまりの思い出。',
+    JourneyStage.memories => '2代目から今のひとつ前の代まで、受け継がれてきた思い出。',
+    JourneyStage.present => 'いまの飼い主と${pet.name}が重ねている思い出。',
   };
 
-  String get _note => switch (stage) {
-    JourneyStage.beginning => '最初の出会いは、ずっとこの子の旅のはじまりです。',
-    JourneyStage.memories => '飼い主から次の飼い主へ。この子がつないできた出会いを振り返ります。',
-    JourneyStage.present => '新しい場所でも、この子らしい毎日を重ねています。',
-  };
+  Widget _generationMemories(int generation) {
+    final memories = pet.memories.where(
+      (memory) => memory.generation == generation,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: AppCard(
+        padding: 24,
+        radius: 24,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              generation == 1 ? 'あなたとの思い出' : '$generation代目の思い出',
+              style: const TextStyle(
+                fontSize: 19,
+                height: 1.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              generation == pet.currentGeneration
+                  ? '現在の飼い主との記録'
+                  : '一緒に過ごした日々の記録',
+              style: const TextStyle(color: AppColors.primary, fontSize: 12),
+            ),
+            if (memories.isEmpty) ...[
+              const SizedBox(height: 20),
+              const Text(
+                'まだ思い出の記録がありません。',
+                style: TextStyle(color: AppColors.muted, height: 1.7),
+              ),
+            ],
+            for (final memory in memories) ...[
+              const SizedBox(height: 20),
+              const Divider(color: AppColors.soft),
+              const SizedBox(height: 16),
+              Text(
+                memory.title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  height: 1.6,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                memory.body,
+                style: const TextStyle(fontSize: 14, height: 1.9),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -68,50 +136,33 @@ class JourneyDetailScreen extends StatelessWidget {
                 style: TextStyle(color: AppColors.primary, fontSize: 12),
               ),
               const SizedBox(height: 28),
-              AppCard(
-                padding: 24,
-                radius: 24,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(stage.icon, color: AppColors.primary, size: 28),
-                    const SizedBox(height: 16),
-                    Text(
-                      stage.title,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        height: 1.5,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      _description,
-                      style: const TextStyle(fontSize: 15, height: 1.9),
-                    ),
-                    const SizedBox(height: 20),
-                    const Divider(color: AppColors.soft),
-                    const SizedBox(height: 12),
-                    Text(
-                      _note,
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 13,
-                        height: 1.8,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                '表示サンプルです。実際の日時や出会いの履歴は、まだ連携されていません。',
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.7,
+              Text(
+                _introduction,
+                style: const TextStyle(
+                  fontSize: 15,
+                  height: 1.8,
                   color: AppColors.muted,
                 ),
               ),
+              const SizedBox(height: 20),
+              if (_generations.isEmpty)
+                const AppCard(
+                  padding: 24,
+                  radius: 24,
+                  child: Text('2代目から今のひとつ前の代までの思い出は、まだ記録されていません。'),
+                ),
+              for (final generation in _generations)
+                _generationMemories(generation),
+              const SizedBox(height: 20),
+              if (pet.isSample)
+                const Text(
+                  '思い出は表示サンプルです。実際の記録とは連携していません。記録のない世代は表示していません。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.7,
+                    color: AppColors.muted,
+                  ),
+                ),
             ],
           ),
         ),
