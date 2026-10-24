@@ -30,6 +30,8 @@ def new_pet(uid, now):
         "name": None,
         "personalityAxes": {name: 0.5 for name in AXIS_NAMES},
         "learnedWords": [],
+        "points": 0.0,
+        "gauge": 0.0,
         "generation": 1,  # 手渡しされるたびに、1ずつ増える
     }
 

@@ -8,6 +8,7 @@ from firebase_functions.params import SecretParam
 from petlogic.adapters import google_stt, google_tts, http_ai
 from petlogic.errors import ApiError
 from petlogic.exchange import cancel_exchange, get_exchange_result, report_exchange
+from petlogic.growth import record_progress
 from petlogic.pet import get_pet
 from petlogic.register import register_device
 from petlogic.talk import talk
@@ -68,6 +69,13 @@ def getPet(req: https_fn.CallableRequest):
     uid = _require_uid(req)
     data = req.data or {}
     return _run(lambda: get_pet(firestore.client(), uid, data.get("deviceId")))
+
+
+@https_fn.on_call()
+def recordProgress(req: https_fn.CallableRequest):
+    """会話・歩数・すれ違いを記録して、ゲージを進める。入力: deviceId, nTalk, steps, nMeet, eventKey。"""
+    uid = _require_uid(req)
+    return _run(lambda: record_progress(firestore.client(), uid, req.data, _now()))
 
 
 @https_fn.on_call()

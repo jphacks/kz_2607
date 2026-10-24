@@ -25,6 +25,8 @@ def get_pet(db, uid, device_id):
         "petId": pet_id,
         "name": pet.get("name"),
         "generation": pet.get("generation", 1),
+        "points": pet.get("points", 0.0),
+        "gauge": pet.get("gauge", 0.0),
         "personalityAxes": pet.get("personalityAxes", {}),
         "learnedWords": list(pet.get("learnedWords", [])),
         "createdAt": created.isoformat() if hasattr(created, "isoformat") else None,
