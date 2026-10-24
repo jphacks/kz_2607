@@ -132,7 +132,7 @@ if __name__ == "__main__":
         report(f"{a.eval}（{a.split}）", [r["turns"][-1]["text"] for r in rows if r["labels"]["safety"]],
                [r["turns"][-1]["text"] for r in rows if not r["labels"]["safety"]])
     else:
-        import kz_2607.ai.judge_code.make_safety_data as M
+        import make_safety_data as M
         report("学習用の安全データ", M.ABUSE + M.DISCRIMINATION + M.SEXUAL, M.ROUGH_BUT_SAFE)
         try:
             import make_route_eval as R

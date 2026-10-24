@@ -32,7 +32,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from kz_2607.ai.judge_code.pet_judge_model import JudgeConfig
+from pet_judge_model import JudgeConfig
 
 CFG = JudgeConfig()
 
@@ -668,7 +668,7 @@ def merge(args):
             for (want, got), n in off.most_common(5):
                 print(f"    意図 {want} → 採点 {got}: {n} 件")
         try:
-            from kz_2607.ai.judge_code.pet_judge_data import validate_rows
+            from pet_judge_data import validate_rows
             validate_rows(train, CFG)
             print("学習コードの形式チェック: OK")
         except ImportError:
@@ -718,7 +718,7 @@ def merge(args):
         print('  書き方: "思い出" / {"思い出": 0.6, "雑談": 0.4} / {"route": "雑談", "safety": []} / "除外"')
 
     try:                                                          # 学習コードで読めるか最終チェック
-        from kz_2607.ai.judge_code.pet_judge_data import validate_rows
+        from pet_judge_data import validate_rows
         validate_rows(train, CFG)
         print("学習コードの形式チェック: OK")
     except ImportError:

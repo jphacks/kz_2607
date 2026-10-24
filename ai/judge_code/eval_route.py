@@ -15,8 +15,8 @@ import random
 
 import torch
 
-from kz_2607.ai.judge_code.pet_judge_data import JudgeDataset, RuriEncoder, load_jsonl
-from kz_2607.ai.judge_code.pet_judge_model import load_judge
+from pet_judge_data import JudgeDataset, RuriEncoder, load_jsonl
+from pet_judge_model import load_judge
 
 
 def run_name(path):

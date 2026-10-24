@@ -76,7 +76,7 @@ if __name__ == "__main__":
     rows = build()
     # 学習用データ（make_safety_data.py）と同じ文が入っていないか確かめる
     try:
-        import kz_2607.ai.judge_code.make_safety_data as M
+        import make_safety_data as M
         train = set(M.ABUSE + M.DISCRIMINATION + M.SEXUAL + M.ROUGH_BUT_SAFE)
         clash = [r["turns"][-1]["text"] for r in rows if r["turns"][-1]["text"] in train]
         if clash:

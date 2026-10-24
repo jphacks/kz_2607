@@ -20,7 +20,7 @@ from pathlib import Path
 
 import requests
 
-from kz_2607.ai.chat.talk.teacher_data import build_system_prompt
+from teacher_data import build_system_prompt
 
 URL = "http://127.0.0.1:8081"
 HERE = Path(__file__).parent
@@ -89,7 +89,7 @@ def main():
     args = ap.parse_args()
 
     if args.reconvert:
-        from kz_2607.ai.chat.talk.baby_talk import to_baby
+        from baby_talk import to_baby
         endings = {json.loads(l)["id"]: json.loads(l)["ending"] for l in open(args.set, encoding="utf-8") if l.strip()}
         rows = [json.loads(l) for l in open(args.out, encoding="utf-8") if l.strip()]
         n = 0
@@ -125,7 +125,7 @@ def main():
                 seed = int(it["id"][1:])
                 rec = {"id": it["id"], "system": tag, "scales": {a: round(x, 2) for a, x in sc.items() if x > 0}}
                 if args.baby_via_child and it["stage"] == 1:
-                    from kz_2607.ai.chat.talk.baby_talk import to_baby
+                    from baby_talk import to_baby
                     raw = gen(ids, it, sc, seed, args, stage=2)
                     rec.update(raw=raw, reply=to_baby(raw, it["ending"]))
                 else:

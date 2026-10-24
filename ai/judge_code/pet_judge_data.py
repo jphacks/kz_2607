@@ -35,7 +35,7 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset
 
-from kz_2607.ai.judge_code.pet_judge_model import JudgeConfig
+from pet_judge_model import JudgeConfig
 
 SPEAKER_IDS = {"owner": 0, "飼い主": 0, "pet": 1, "ペット": 1}
 

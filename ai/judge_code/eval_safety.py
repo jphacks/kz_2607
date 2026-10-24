@@ -15,8 +15,8 @@ import json
 
 import torch
 
-from kz_2607.ai.judge_code.pet_judge_data import JudgeDataset, RuriEncoder, load_jsonl
-from kz_2607.ai.judge_code.pet_judge_model import load_judge
+from pet_judge_data import JudgeDataset, RuriEncoder, load_jsonl
+from pet_judge_model import load_judge
 
 
 def unsafe_prob(model, ds):
@@ -58,7 +58,7 @@ def main():
             ds = JudgeDataset(part, enc, cfg)
             p = unsafe_prob(model, ds)
             if a.ng:
-                from kz_2607.ai.judge_code.ng_words import check
+                from ng_words import check
                 p = torch.tensor([1.0 if check(r["turns"][-1]["text"]) else float(v) for r, v in zip(part, p)])
             res[split] = (part, p, torch.tensor([bool(r["labels"]["safety"]) for r in part]))
 

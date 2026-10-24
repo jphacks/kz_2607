@@ -20,7 +20,7 @@ from pathlib import Path
 
 import requests
 
-from kz_2607.ai.chat.talk.teacher_data import AXES, build_system_prompt, hour_to_label
+from teacher_data import AXES, build_system_prompt, hour_to_label
 
 URL = "http://127.0.0.1:8081"
 OUT = Path(__file__).parent / "mix_results.md"

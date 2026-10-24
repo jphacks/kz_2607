@@ -21,8 +21,8 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from kz_2607.ai.judge_code.pet_judge_data import JudgeDataset, RuriEncoder, label_summary, load_jsonl
-from kz_2607.ai.judge_code.pet_judge_model import JudgeConfig, PetJudge, decide, judge_loss, load_judge
+from pet_judge_data import JudgeDataset, RuriEncoder, label_summary, load_jsonl
+from pet_judge_model import JudgeConfig, PetJudge, decide, judge_loss, load_judge
 
 MULTI_HEADS = ("nature", "reaction", "safety")
 
@@ -254,7 +254,7 @@ def main():
 
     (out_dir / "history.json").write_text(json.dumps(history, ensure_ascii=False, indent=1), encoding="utf-8")
     try:                                                   # 損失のグラフ（curves.png）
-        from kz_2607.ai.judge_code.plot_history import plot
+        from plot_history import plot
         print(f"グラフを保存: {plot(out_dir)}")
     except Exception as e:
         print(f"グラフは作れませんでした: {e}")
