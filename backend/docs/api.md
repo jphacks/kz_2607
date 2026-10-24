@@ -232,3 +232,20 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 - 24kHzから16kHzへの変換は、簡単な方法のため、声は聞き取れるが、WAVより音質が少し落ちる
 - 未確認: Core2側が、この形をそのまま再生できるか。最大の長さ(返事は200文字までで、十数秒になりうる)。組み込みに確認すること
 
+
+## 思い出機能(AIサーバーへ渡すもの)
+
+`talkToPet` は、AIサーバーへ次を追加で送る(空のものは送らない)。
+
+| キー | 内容 |
+|---|---|
+| `generation` | ペットの今の代(数字) |
+| `memories` | `[{id, text, createdAt}]` 最新30件。今の飼い主・今の代のものだけ。名前は `{shop_1}` のような伏せ字 |
+| `nameMap` | `{"{shop_1}": "ミスド"}` 伏せ字と本当の名前の対応(この飼い主のもの) |
+| `journeys` | `[{generation, learnedWords, talkCount, timeOfDay?, summary?}]` 前の持ち主たちの旅の記録 |
+
+- 前の持ち主の思い出・nameMap は、次の飼い主には渡さない。journeys だけが引き継がれる。
+- 要約(`summarizeMemories`)は Firestore トリガーで、会話が10往復たまるたびに裏で動く。`/talk` の返事は待たせない。
+- 交換時(`summarizeHandoff`)に、終わった代の残りの会話(3往復以上)も要約し、journeys に値(言葉・会話数・時間帯)と summary を書く。
+- 思い出の日付(`createdAt`)は、出来事のあった日の12:00(JST)。
+- モデル名は `functions/.env` の `OPENAI_MODEL`(仕様書の `gpt-6-luna` ではなく、実際の `gpt-5.6-luna`)。

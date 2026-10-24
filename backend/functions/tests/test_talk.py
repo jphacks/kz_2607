@@ -209,7 +209,7 @@ def test_ai_axes_renamed():
     assert ai_axes({"activity": 0.1, "friendly": 0.2, "logical": 0.3, "nightowl": 0.4}) == {
         "active": 0.1, "affection": 0.2, "logic": 0.3, "night": 0.4,
     }
-    assert build_ai_payload("x", "p", {}, NOW) == {"text": "x", "petId": "p", "hour": 12}
+    assert build_ai_payload("x", "p", {}, NOW) == {"text": "x", "petId": "p", "hour": 12, "generation": 1}
 
 
 # --- AIサーバーへの接続(本物のHTTPサーバーで確かめる) ---

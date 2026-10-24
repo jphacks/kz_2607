@@ -1,6 +1,7 @@
 """音声会話。録音 → 文字 → AIの返答 → 声。"""
 import base64
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta, timezone
 
 from .adapters import AiCallError
@@ -8,6 +9,7 @@ from .audio_codec import CORE2_RATE, wav_to_core2_adpcm
 from .errors import ApiError
 from .growth import add_talk
 from .learn import learn_words
+from .memory import load_talk_context
 from .register import validate_device_id
 from .talklog import record_turn
 from .store import run_in_transaction
@@ -35,8 +37,12 @@ def ai_axes(axes):
     return {ai: axes[mine] for mine, ai in AI_AXIS_NAMES.items() if mine in axes}
 
 
-def build_ai_payload(text, pet_id, pet, now):
-    payload = {"text": text, "petId": pet_id, "hour": now.astimezone(JST).hour}
+def build_ai_payload(text, pet_id, pet, now, context=None):
+    payload = {"text": text, "petId": pet_id, "hour": now.astimezone(JST).hour,
+               "generation": pet.get("generation", 1)}
+    for key in ("memories", "nameMap", "journeys"):  # 思い出の材料(空なら付けない)
+        if (context or {}).get(key):
+            payload[key] = context[key]
     if pet.get("name"):
         payload["petName"] = pet["name"]
     axes = ai_axes(pet.get("personalityAxes"))
@@ -111,9 +117,17 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
     pet = pet_snap.to_dict()
 
     phrases = [pet["name"]] if pet.get("name") else []
-    try:
-        transcript, _confidence = recognize(pcm, rate, language, phrases)
-    except Exception as e:
+    # 音声認識と、思い出の読み込みを、同時に行う(待ち時間を増やさない)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        stt = pool.submit(recognize, pcm, rate, language, phrases)
+        context = load_talk_context(db, uid, pet_id, pet)
+        try:
+            transcript, _confidence = stt.result()
+        except Exception as e:
+            transcript = None
+            stt_error = e
+    if transcript is None:
+        e = stt_error
         logging.error("音声認識に失敗しました: %s: %s", type(e).__name__, str(e)[:500].replace("\n", " "))
         raise ApiError("unavailable", "音声を文字にできませんでした", "stt_failed")
     base = {"petId": pet_id, "durationSec": round(seconds, 2)}
@@ -130,7 +144,7 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
         if not isinstance(url, str) or not url.startswith("https://"):
             raise ApiError("unavailable", "AIがまだつながっていません", "ai_not_configured")
         try:
-            answer = ai(url, build_ai_payload(transcript, pet_id, pet, now))
+            answer = ai(url, build_ai_payload(transcript, pet_id, pet, now, context))
             reply, ai_words = answer["reply"], answer.get("words", [])
         except AiCallError as e:
             logging.error("AIの呼び出しに失敗しました: %s", e)
@@ -171,7 +185,7 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
             {"currentPetId": now_pet},
         )
     result["learnedWords"] = learn_words(db, uid, device_id, pet_id, ai_words, now, run_tx)
-    record_turn(db, pet_id, pet.get("generation", 1), transcript, reply, now, run_tx)
+    record_turn(db, pet_id, pet.get("generation", 1), transcript, reply, now, run_tx, uid=uid)
     progress = add_talk(db, uid, device_id, pet_id, now, run_tx)
     if progress:
         result["gauge"] = progress["gauge"]

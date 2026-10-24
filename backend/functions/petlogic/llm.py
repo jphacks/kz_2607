@@ -11,12 +11,14 @@ class LlmError(Exception):
     pass
 
 
-def openai_chat(system, user, api_key, model, url=OPENAI_URL):
+def openai_chat(system, user, api_key, model, url=OPENAI_URL, json_mode=False):
     """system と user の2つの文を渡して、返ってきた文章を返す。"""
     if not api_key or not model:
         raise LlmError("OPENAI_API_KEY か OPENAI_MODEL が設定されていません")
     body = {"model": model, "messages": [{"role": "system", "content": system},
                                          {"role": "user", "content": user}]}
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
     request = urllib.request.Request(
         url, data=json.dumps(body).encode("utf-8"), method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key.strip()}"},

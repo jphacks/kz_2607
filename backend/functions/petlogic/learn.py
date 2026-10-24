@@ -58,7 +58,8 @@ def learn_words(db, uid, device_id, pet_id, raw_words, now, run_tx=run_in_transa
         pet_snap = pet_ref.get(transaction=tx)
         if not pet_snap.exists:
             return []
-        known = list(pet_snap.to_dict().get("learnedWords") or [])
+        pet = pet_snap.to_dict()
+        known = list(pet.get("learnedWords") or [])
         room = MAX_WORDS_PER_PET - len(known)
         new = [w for w in words if w not in known][: max(room, 0)]
         if not new:
@@ -66,7 +67,7 @@ def learn_words(db, uid, device_id, pet_id, raw_words, now, run_tx=run_in_transa
         tx.update(pet_ref, {"learnedWords": known + new})
         tx.create(
             pet_ref.collection("history").document(),
-            {"type": "wordsTaught", "words": new, "createdAt": now},
+            {"type": "wordsTaught", "words": new, "generation": pet.get("generation", 1), "createdAt": now},
         )
         return new
 
