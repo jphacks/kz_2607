@@ -145,7 +145,7 @@
 5. 結果が分からないとき(通信切れなど)は、同じ内容で再送する。それでも分からなければ `getExchangeResult` で確認する。`unknown` なら `cancelExchange` を呼び、`cancelled` を確認してから戻す
 
 ## ゲージ
-- ペットとの会話(`talkToPet` が成功したとき)が、1回ごとに、ゲージを進める。**10回で満タン(1.0)**。アプリから何かを送る必要はない
+- ペットとの会話(`talkToPet` が成功したとき)が、1回ごとに、ゲージを進める。**10回で満タン(1.0)**(`config/game.talksToFull` で変える。本番は100)。アプリから何かを送る必要はない
 - 声が聞き取れなかったとき(`no_speech`)は、数えない
 - `talkToPet` の戻り値に `gauge` が入る。`getPet` でも読める
 - 交換が確定すると、2匹のゲージは0に戻る(新しい飼い主のもとで、貯め直す)
@@ -242,12 +242,14 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 | キー | 内容 |
 |---|---|
 | `generation` | ペットの今の代(数字) |
-| `memories` | `[{id, text, createdAt}]` 最新30件。今の飼い主・今の代のものだけ。名前は `{shop_1}` のような伏せ字 |
+| `memories` | `[{id, text, generation, createdAt}]` 最新30件。今の飼い主が育てた代のもの(元の飼い主に戻ってきたら、昔の分も入る)。名前は `{shop_1}` のような伏せ字で、`nameMap` で本当の名前に戻せる。`createdAt` はISO文字列 |
+| `pastMemories` | `[{id, text, generation, createdAt}]` 前の飼い主たちの思い出(最大10件)。直前の代から最大7件+1代目から最大3件(直前が1代目なら1代目から10件)、新しい順。**伏せ字は「あの人」「あのお店」などにぼかし済み**。今の飼い主が育てた代の分は入らない |
 | `nameMap` | `{"{shop_1}": "ミスド"}` 伏せ字と本当の名前の対応(この飼い主のもの) |
 | `journeys` | `[{generation, learnedWords, talkCount, timeOfDay?, summary?}]` 前の持ち主たちの旅の記録 |
 
-- 前の持ち主の思い出・nameMap は、次の飼い主には渡さない。journeys だけが引き継がれる。
-- 要約(`summarizeMemories`)は Firestore トリガーで、会話が10往復たまるたびに裏で動く。`/talk` の返事は待たせない。
+- 前の持ち主の nameMap は、次の飼い主には渡さない。前の持ち主の思い出は、`pastMemories`(ぼかし済み)と journeys だけが引き継がれる。
+- 交換が確定した少しあと(裏の処理が終わったあと)に、`memoryCache/current` を新しい飼い主用に作り直す。それまでは `memories`・`pastMemories` とも空。
+- 要約(`summarizeMemories`)は Firestore トリガーで、会話が5往復(既定。`config/game.summarizeEveryTurns`、本番は10など)たまるたびに裏で動く。`/talk` の返事は待たせない。
 - 交換時(`summarizeHandoff`)に、終わった代の残りの会話(3往復以上)も要約し、journeys に値(言葉・会話数・時間帯)と summary を書く。
 - 思い出の日付(`createdAt`)は、出来事のあった日の12:00(JST)。
 - モデル名は `functions/.env` の `OPENAI_MODEL`(仕様書の `gpt-6-luna` ではなく、実際の `gpt-5.6-luna`)。
@@ -281,7 +283,9 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 
 | キー | 既定 | 意味 |
 |---|---|---|
-| `personalityUpdateEvery` | 2 | 会話がこの回数ふえるごとに更新する。資料の式②(ΔP ≥ P_full÷6)で、いまの満タンは10回なので約2。**1人の飼い主のもとで長く話す(満タン後も交換しない)なら、17など大きくする** |
+| `personalityUpdateEvery` | 2 | 会話がこの回数ふえるごとに更新する。資料の式②(ΔP ≥ P_full÷6)で、P_full が満タンの10回(デモ)なら約2。本番(100回)なら約17。**1人の飼い主のもとで長く話す(満タン後も交換しない)なら、17など大きくする** |
+| `talksToFull` | 10 | ゲージが満タンになる会話の回数。デモは10、本番は100 |
+| `summarizeEveryTurns` | 5 | 何往復ごとに思い出を要約するか(2以上)。デモは5、本番は10など |
 | `personalityEta` | 0.12 | 近づく速さ。デモでは 0.5 などにすると、変化が見えやすい |
 | `personalityMaxShift` | 0.2 | 1人の飼い主で動ける幅 |
 | `curiousNewTopicWeight` | 0.5 | 好奇心のうち「新しい話題」の割合(0〜1)。実際の会話で「新しい話題」が8割を超えて差がつかないときは、0 にすると、質問の割合だけで決まる |
@@ -327,6 +331,27 @@ appearance: {
 - 以前から使っているユーザーは、`getLetters` を呼んだときに、自動で記録される(作成日時が最古のペット)。
 - 「一番最初」は、`users/{uid}/createdPets` の作成日時が最も古いもの。同じなら、IDの小さいほう。
 - 手紙(`getLetters`・毎朝9時の配信)は、このペットだけが対象。
+
+## setInitialPersonality(誕生のときに性格の初期値を決める)
+
+6問4択の回答から、6軸の初期値を決める。**1体につき1回だけ**。決める値は、アプリの計算ではなく、回答からサーバーで計算する(アプリの値は表示用)。
+
+| 入力 | 内容 |
+|---|---|
+| `deviceId` | 端末ID |
+| `answers` | 0〜3の整数が6個。**軸の順**: `activity`, `friendly`, `talkative`, `logical`, `curious`, `nightowl`(軸の名前をキーにした辞書でもよい) |
+| `questionnaireVersion` | 質問のバージョン(1以上の整数) |
+
+- 回答と値: 0 → 0.2、1 → 0.4、2 → 0.6、3 → 0.8
+- 返る: `{status: "ok", petId, personalityAxes, birthTrait, appearance, alreadySet}`
+  - `personalityAxes`: `{activity, friendly, talkative, logical, curious, nightowl}`(0〜1)
+  - `birthTrait`: いちばん強い軸。AIの名前(`active` / `affection` / `talkative` / `logic` / `curious` / `night`)。同じ値なら、`active → affection → talkative → logic → curious → night` の順
+  - `appearance`: 赤ちゃんの絵のキー。`{stage: "baby", primary, secondary, key, fallbackKey}`
+- 保存先(`pets/{petId}`): `personalityAxes`、`axesBase`(性格が動ける幅の基準。同じ値)、`birthAnswers`、`questionnaireVersion`、`birthTrait`
+- 送り直し: 同じ回答・同じバージョンなら、成功(`alreadySet: true`)。違うなら、エラー(`personality_already_set`)
+- できる人: そのペットを作った本人が、いまも持っていて、**交換前の1代目で、まだ話していない**ときだけ。それ以外は `personality_not_allowed`(作った人でないと `not_creator`)
+- 入力の誤り(個数・範囲・整数でない・バージョン)は `invalid-argument`(`invalid_answers` / `invalid_version`)
+- 性格の更新の基準は `axesBase` に統一(別の保存先は作らない)
 
 ## setPetName(誕生のときに名前をつける)
 

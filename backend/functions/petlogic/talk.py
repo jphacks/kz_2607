@@ -41,7 +41,7 @@ def ai_axes(axes):
 def build_ai_payload(text, pet_id, pet, now, context=None, stage=None):
     payload = {"text": text, "petId": pet_id, "hour": now.astimezone(JST).hour,
                "generation": pet.get("generation", 1)}
-    for key in ("memories", "nameMap", "journeys"):  # 思い出の材料(空なら付けない)
+    for key in ("memories", "pastMemories", "nameMap", "journeys"):  # 思い出の材料(空なら付けない)
         if (context or {}).get(key):
             payload[key] = context[key]
     if pet.get("name"):

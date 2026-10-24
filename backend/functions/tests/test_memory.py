@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fakes import FakeDb, run_tx  # noqa: E402
 from petlogic.exchange import report_exchange  # noqa: E402
 from petlogic.journey import (add_journey_summary, finish_journeys, start_journeys, time_of_day)  # noqa: E402
-from petlogic.memory import (BATCH_TURNS, build_user_prompt, load_talk_context, parse_memories,  # noqa: E402
+from petlogic.memory import (BATCH_TURNS, rebuild_cache, refresh_cache, build_user_prompt, load_talk_context, parse_memories,  # noqa: E402
                              summarize_memories)
 from petlogic.register import register_device  # noqa: E402
 from petlogic.talk import build_ai_payload  # noqa: E402
@@ -43,7 +43,7 @@ def test_turns_get_sequence_numbers_and_claim_is_exclusive():
 
 
 def test_claim_needs_enough_turns():
-    db, pet = setup(9)
+    db, pet = setup(BATCH_TURNS - 1)
     assert claim_pending(db, pet, 1, BATCH_TURNS, run_tx) is None
 
 
@@ -68,8 +68,8 @@ def test_summarize_saves_memories_names_and_cache():
     assert "today: 2026-10-24" in seen["user"] and "飼い主: 話0" in seen["user"]
 
 
-def test_not_summarized_until_ten_turns_but_force_needs_three():
-    db, pet = setup(5)
+def test_not_summarized_until_batch_turns_but_force_needs_three():
+    db, pet = setup(4)
     assert summarize_memories(db, pet, 1, lambda s, u: 1 / 0, NOW, run_tx=run_tx)["status"] == "skipped"
     assert summarize_memories(db, pet, 1, lambda s, u: reply([]), NOW, force=True, run_tx=run_tx)["status"] == "done"
     db2, pet2 = setup(2)
@@ -206,3 +206,74 @@ def test_no_memories_means_no_summary_and_ai_failure_marks_failed():
 
     assert finish_journeys(db2, h2, boom, NOW, run_tx)["status"] == "failed"
     assert db2.docs[("pets", a2)]["journeys"][0]["talkCount"] == 3  # 値は、書けている
+
+
+def test_batch_turns_is_configurable():
+    db, pet = setup(5)
+    db.collection("config").document("game").set({"summarizeEveryTurns": 10})
+    assert summarize_memories(db, pet, 1, lambda s, u: 1 / 0, NOW, run_tx=run_tx)["status"] == "skipped"
+
+
+# ---- 前の代の思い出(pastMemories) ----
+def put_memory(db, pet, owner, gen, text, day):
+    db.collection("pets").document(pet).collection("memories").document().set(
+        {"ownerUid": owner, "generation": gen, "text": text,
+         "createdAt": datetime(2026, 10, day, 12, tzinfo=JST)})
+
+
+def test_past_items_are_blurred_limited_and_split_near_and_first():
+    db, pet = setup(0)
+    for d in range(1, 11):
+        put_memory(db, pet, "uA", 1, f"{{shop_1}}で{d}番目をした", d)
+    for d in range(1, 11):
+        put_memory(db, pet, "uB", 2, f"{{person_1}}と{d}番目をした", d)
+    put_memory(db, pet, "uC", 3, "いまの人のこと", 20)
+    rebuild_cache(db, pet, "uC", 4, NOW)  # 4代目: 直前=3(uC自身→外す)ではなく、uCは3代目を育てた人
+    cache = db.docs[(f"pets/{pet}/memoryCache", "current")]
+    assert [m["text"] for m in cache["items"]] == ["いまの人のこと"]
+    gens = [m["generation"] for m in cache["pastItems"]]
+    assert gens.count(2) == 0 and gens.count(1) == 3  # 直前(3代目)は本人なので無し。1代目から3件
+    rebuild_cache(db, pet, "uD", 3, NOW)  # 3代目の飼い主が別人なら: 直前=2代目から7件+1代目から3件
+    past = db.docs[(f"pets/{pet}/memoryCache", "current")]["pastItems"]
+    assert [m["generation"] for m in past] == [2] * 7 + [1] * 3
+    assert past[0]["text"] == "あの人と10番目をした" and past[7]["text"].startswith("あのお店で")
+    assert all("{" not in m["text"] and {"id", "createdAt"} <= set(m) for m in past)
+    assert past[0]["createdAt"].startswith("2026-10-10")
+
+
+def test_second_generation_takes_ten_from_first():
+    db, pet = setup(0)
+    for d in range(1, 13):
+        put_memory(db, pet, "uA", 1, f"{d}番目をした", d)
+    rebuild_cache(db, pet, "uB", 2, NOW)
+    assert len(db.docs[(f"pets/{pet}/memoryCache", "current")]["pastItems"]) == 10
+
+
+def test_returning_owner_gets_old_memories_as_own_and_not_as_past():
+    db, pet = setup(0)
+    put_memory(db, pet, "uA", 1, "{shop_1}で遊んだ", 1)
+    put_memory(db, pet, "uB", 2, "べつの人のこと", 2)
+    rebuild_cache(db, pet, "uA", 3, NOW)
+    cache = db.docs[(f"pets/{pet}/memoryCache", "current")]
+    assert [m["text"] for m in cache["items"]] == ["{shop_1}で遊んだ"]  # 本人の分は伏せ字のまま(nameMapは本人の分)
+    assert [m["text"] for m in cache["pastItems"]] == ["べつの人のこと"]
+
+
+def test_talk_context_includes_past_memories_and_payload_passes_them():
+    db, pet = setup(0)
+    put_memory(db, pet, "uA", 1, "{shop_1}で遊んだ", 1)
+    rebuild_cache(db, pet, "u1", 2, NOW)
+    ctx = load_talk_context(db, "u1", pet, {"generation": 2})
+    assert ctx["pastMemories"][0]["text"] == "あのお店で遊んだ"
+    assert build_ai_payload("x", "p", {"generation": 2}, NOW, ctx)["pastMemories"][0]["generation"] == 1
+
+
+def test_summarizing_an_ended_generation_does_not_overwrite_the_new_owners_cache():
+    db, pet = setup(5)
+    db.docs[("pets", pet)].update({"generation": 2, "ownerUid": "u2"})  # すでに交換が済んで、2代目(別の飼い主)
+    summarize_memories(db, pet, 1, lambda s, u: reply([{"text": "散歩をした", "occurred_on": "2026-10-23"}]),
+                       NOW, force=True, run_tx=run_tx)
+    assert (f"pets/{pet}/memoryCache", "current") not in db.docs
+    refresh_cache(db, pet, NOW)  # 交換のあとの用意
+    cache = db.docs[(f"pets/{pet}/memoryCache", "current")]
+    assert cache["generation"] == 2 and [m["text"] for m in cache["pastItems"]] == ["散歩をした"]

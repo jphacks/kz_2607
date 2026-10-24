@@ -137,3 +137,9 @@ def test_get_pet_shows_stage_for_new_pet():
     db, a, _ = setup()
     info = get_pet(db, "u1", "devA")
     assert info["stage"] == "baby" and info["totalTalks"] == 0 and info["talksToNextStage"] == 30
+
+
+def test_talks_to_full_is_configurable():
+    db, a, _ = setup()
+    db.collection("config").document("game").set({"talksToFull": 100})
+    assert talk_once(db, a)["gauge"] == pytest.approx(1 / 100)

@@ -19,7 +19,7 @@ from .store import run_in_transaction
 from .talklog import read_turns
 
 JST = timezone(timedelta(hours=9))
-UPDATE_EVERY_TALKS = 2  # 会話がこの回数ふえたら更新する(式②: ΔP ≥ P_full ÷ 6。いまの P_full は満タンの10回なので約2)
+UPDATE_EVERY_TALKS = 2  # 会話がこの回数ふえたら更新する(式②: ΔP ≥ P_full ÷ 6。P_full が満タンの10回(デモ)なら約2。本番は設定で)
 DEFAULT_TOPIC_WEIGHT = 0.5  # 好奇心のうち「新しい話題」の割合。0にすると、質問の割合だけで決める
 UPDATE_AFTER_HOURS = 24  # 前回から、この時間たっていれば、1回でも更新する
 DEFAULT_ETA = 0.12  # 近づく速さ
