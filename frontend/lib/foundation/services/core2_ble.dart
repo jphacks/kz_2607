@@ -7,6 +7,9 @@ import 'reply_voice_sender.dart';
 import 'voice_transfer_metrics.dart';
 import 'voice_transfer.dart';
 import 'pet_config_transport.dart';
+import '../controllers/exchange_controller.dart';
+import '../models/pending_exchange.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
@@ -35,6 +38,9 @@ class Core2Ble extends ChangeNotifier {
   VoiceLink? _voice;
   ReplyVoiceSender? _reply;
   PetConfigTransport? _petConfig;
+  ExchangeController? exchange;
+  String? _exchangeUid;
+  String get exchangeStatus => exchange?.message ?? '交換候補はまだ届いていません';
   String? _syncedPetId;
   bool _syncingPetId = false;
   String petConfigStatus = 'petIdはCore2へ未送信です';
@@ -130,6 +136,7 @@ class Core2Ble extends ChangeNotifier {
       _syncedPetId = petId;
       petConfigStatus = 'Core2へのpetId設定を確認しました';
       _log(petConfigStatus);
+      unawaited(_prepareExchange());
     } catch (e) {
       if (_disposed || device != target || _petConfig != transport) return;
       petConfigStatus = 'petId設定を確認できません: $e';
@@ -139,6 +146,68 @@ class Core2Ble extends ChangeNotifier {
         _syncingPetId = false;
         _refresh();
       }
+    }
+  }
+
+  Future<void> _prepareExchange() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final id = voiceCloud.deviceId;
+    if (_disposed || !ready || uid == null || id == null) return;
+    if (_exchangeUid != uid) {
+      exchange?.removeListener(_refresh);
+      exchange?.dispose();
+      exchange = ExchangeController(uid)..addListener(_refresh);
+      _exchangeUid = uid;
+    }
+    final controller = exchange!;
+    await controller.ready;
+    if (_disposed || !ready || voiceCloud.deviceId != id) return;
+    controller.connectedDevice(id);
+    if (controller.hasUnresolved && controller.candidate?.myDeviceId == id) {
+      voiceCloud.beginExchange();
+      await processExchange();
+    }
+    _refresh();
+  }
+
+  Future<void> _onExchangeMessage(Map<String, dynamic> data) async {
+    if (data['type'] != 'exchange_pending') return;
+    try {
+      final candidate = PendingExchange.fromMap(data);
+      final controller = exchange;
+      if (!ready || _petConfig == null || controller == null ||
+          voiceCloud.deviceId != candidate.myDeviceId ||
+          ((_syncedPetId != candidate.givenPetId &&
+                  _syncedPetId != candidate.gotPetId) &&
+              !controller.hasUnresolved)) {
+        throw StateError('端末登録・petId同期後に交換候補を再送してください');
+      }
+      if (!await controller.receive(data, voiceCloud.deviceId)) {
+        _log(controller.message);
+        return;
+      }
+      voiceCloud.beginExchange();
+      await processExchange();
+    } catch (error) {
+      _log('交換候補を受け付けません: $error');
+    }
+  }
+
+  Future<void> processExchange() async {
+    final controller = exchange;
+    final transport = _petConfig;
+    if (_disposed || !ready || controller == null || transport == null ||
+        controller.busy || controller.candidate == null) return;
+    await controller.process((message) async {
+      await transport.sendMessage(message, ackType: 'exchange_result_ack');
+    });
+    if (_disposed || _petConfig != transport) return;
+    final delivered = controller.deliveredPetId;
+    if (delivered != null) {
+      voiceCloud.finishExchange(delivered);
+      _log(controller.message);
+    } else {
+      _log(controller.message);
     }
   }
 
@@ -235,7 +304,7 @@ class Core2Ble extends ChangeNotifier {
         final configCommand = command;
         _petConfig = PetConfigTransport(
           (bytes) => configCommand.write(bytes, withoutResponse: false),
-        );
+        )..onMessage = (message) => unawaited(_onExchangeMessage(message));
         petConfigStatus = '端末登録後にpetIdをCore2へ送信します';
       } else {
         petConfigStatus = 'Core2にpetId設定用のBLE特性がありません';
@@ -328,6 +397,7 @@ class Core2Ble extends ChangeNotifier {
   }
 
   void _resetVoice() {
+    exchange?.connectedDevice(null);
     _petConfig?.close();
     _petConfig = null;
     _syncedPetId = null;
@@ -453,6 +523,8 @@ class Core2Ble extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    exchange?.removeListener(_refresh);
+    exchange?.dispose();
     voiceCloud.removeListener(_onVoiceCloudChanged);
     voiceCloud.dispose();
     for (final subscription in _subscriptions) {

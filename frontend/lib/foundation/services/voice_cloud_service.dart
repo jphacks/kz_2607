@@ -26,8 +26,9 @@ class VoiceCloudService extends ChangeNotifier {
   bool _busy = false, _disposed = false;
   int _epoch = 0;
   bool _autoEnable = false;
+  bool _exchangePending = false;
   bool get busy => _busy;
-  bool get enabled => deviceId != null && petId != null && _connection != null;
+  bool get enabled => deviceId != null && petId != null && _connection != null && !_exchangePending;
   bool get connected => _connection != null;
   String? get connectionDeviceId {
     final address = _connection;
@@ -50,6 +51,7 @@ class VoiceCloudService extends ChangeNotifier {
 
   void disable() {
     _autoEnable = false;
+    _exchangePending = false;
     _epoch++;
     if (_transferringReply) cancelReply?.call();
     replyTransferStatus = null;
@@ -62,6 +64,25 @@ class VoiceCloudService extends ChangeNotifier {
     _publish();
   }
 
+  void beginExchange() {
+    if (_disposed || _exchangePending) return;
+    _exchangePending = true;
+    _epoch++;
+    if (_transferringReply) cancelReply?.call();
+    transcript = replyText = null;
+    replyAudio = null;
+    status = '交換結果を確認中です。音声の中継を一時停止しています';
+    _publish();
+  }
+
+  void finishExchange(String currentPetId) {
+    if (_disposed) return;
+    petId = currentPetId;
+    _exchangePending = false;
+    status = '交換結果を確認しました。音声の中継を再開します';
+    _publish();
+  }
+
   // Called after the user selects a Core2 and BLE setup has completed.
   void startForConnection(String connection) {
     if (_disposed) return;
@@ -71,7 +92,7 @@ class VoiceCloudService extends ChangeNotifier {
   }
 
   void _resumeAutoEnable() {
-    if (_disposed || !_autoEnable || _busy || !connected || enabled) return;
+    if (_disposed || !_autoEnable || _busy || !connected || enabled || _exchangePending) return;
     _autoEnable = false;
     unawaited(enable());
   }

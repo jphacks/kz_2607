@@ -315,6 +315,31 @@ class _Core2ConnectionPageState extends State<Core2ConnectionPage> {
         ),
       ),
       const SizedBox(height: 14),
+      ConnectionMessageCard(
+        title: '交換',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _text(ble.exchangeStatus),
+            if (ble.exchange?.candidate != null) ...[
+              const SizedBox(height: 8),
+              SelectableText('交換ID: ${ble.exchange!.candidate!.transactionId}'),
+              _text('交換候補の距離: ${ble.exchange!.candidate!.distanceMeters.toStringAsFixed(3)} m'),
+              _text('手放す: ${ble.exchange!.candidate!.givenPetId}'),
+              _text('受け取る: ${ble.exchange!.candidate!.gotPetId}'),
+              if (ble.exchange!.busy) const LinearProgressIndicator(),
+              if (!ble.exchange!.busy && ble.exchange!.hasUnresolved)
+                TextButton(
+                  onPressed: ble.processExchange,
+                  child: const Text('交換結果を再確認'),
+                ),
+            ],
+            const SizedBox(height: 8),
+            _text('交換可能距離は0.1m以下です。候補を受信すると自動で結果を確認します。'),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
       ActionButton(label: '再接続・接続を確認', onPressed: _connectionSettings),
       const SizedBox(height: 14),
       const Text(
