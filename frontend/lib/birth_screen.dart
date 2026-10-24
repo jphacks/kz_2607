@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'foundation/models/birth_character.dart';
+import 'designsystem/birth_question_panel.dart';
+import 'foundation/app_colors.dart';
 import 'foundation/models/birth_questionnaire.dart';
 import 'foundation/models/birth_request_id.dart';
 import 'foundation/services/birth_service.dart';
@@ -56,15 +58,25 @@ class _BirthScreenState extends State<BirthScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed && !_busy) _run(_refresh);
   }
 
+  String _errorMessage(Object error) {
+    if (error is FirebaseFunctionsException) {
+      final details = error.details;
+      final reason = details is Map ? details['reason'] : null;
+      return '${error.message ?? "処理を完了できませんでした。"}\ncode: ${error.code}${reason == null ? "" : " / reason: $reason"}';
+    }
+    return '$error';
+  }
+
   Future<void> _save() {
     final answers = List<int?>.of(_answers);
     final name = _name.text;
+    final requestId = _requestId;
     final initialPending = _initialPending, namePending = _namePending;
     _writes = _writes
         .catchError((Object _) {})
         .then(
           (_) => _store!.save(
-            _requestId,
+            requestId,
             answers,
             name,
             initialPending: initialPending,
@@ -89,7 +101,7 @@ class _BirthScreenState extends State<BirthScreen> with WidgetsBindingObserver {
       }
       await _refresh();
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = _errorMessage(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -122,7 +134,7 @@ class _BirthScreenState extends State<BirthScreen> with WidgetsBindingObserver {
       if (!widget.canContinue()) throw StateError('登録したM5に接続し直してください。');
       await operation();
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = _errorMessage(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -187,11 +199,19 @@ class _BirthScreenState extends State<BirthScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('キャラクターの誕生')),
+    backgroundColor: AppColors.background,
+    appBar: AppBar(
+      title: const Text('キャラクターの誕生'),
+      backgroundColor: AppColors.background,
+      surfaceTintColor: Colors.transparent,
+    ),
     body: ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        const Text('M5登録 → 6問に回答 → 設定生成 → 名前を確定'),
+        const Text(
+          'あなたとの出会いから、この子の物語がはじまります。',
+          style: TextStyle(color: AppColors.muted, height: 1.7),
+        ),
         const SizedBox(height: 16),
         if (_busy && _state?.status != BirthStatus.born)
           const Column(
@@ -209,41 +229,25 @@ class _BirthScreenState extends State<BirthScreen> with WidgetsBindingObserver {
           const Text('通信が途切れた場合も、まず保存状態を再確認してください。'),
         ],
         if (_state?.status == BirthStatus.egg) ...[
-          const Text('卵にあなたのことを教えてください。保存後は回答を変更できません。'),
-          for (var i = 0; i < birthQuestions.length; i++) ...[
-            const SizedBox(height: 24),
-            Text(
-              '${i + 1}. ${birthQuestions[i].title}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            for (var j = 0; j < 4; j++)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: OutlinedButton(
-                  onPressed: _busy || _initialPending
-                      ? null
-                      : () {
-                          setState(() => _answers[i] = j);
-                        },
-                  child: Row(
-                    children: [
-                      Icon(
-                        _answers[i] == j
-                            ? Icons.radio_button_checked
-                            : Icons.radio_button_off,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(birthQuestions[i].options[j])),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-          FilledButton(
-            onPressed: _busy || _answers.contains(null)
-                ? null
-                : () => _run(_submitAnswers),
-            child: Text(_initialPending ? '同じ回答で保存を再試行' : 'この回答で性格を保存する'),
+          BirthQuestionPanel(
+            answers: _answers,
+            busy: _busy,
+            locked: _initialPending,
+            onChanged: (question, choice) async {
+              if (_busy || _initialPending) return;
+              setState(() {
+                _answers[question] = choice;
+                _error = null;
+              });
+              try {
+                await _save();
+              } catch (_) {
+                if (mounted) {
+                  setState(() => _error = '回答をスマホに保存できませんでした。もう一度選択してください。');
+                }
+              }
+            },
+            onSubmit: () => _run(_submitAnswers),
           ),
         ],
         if (_state?.status == BirthStatus.personalitySet) ...[
