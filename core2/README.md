@@ -8,9 +8,9 @@ configure the transfer before recording is enabled.
 ## Pet ID configuration and status
 
 The status characteristic (`...0002`, read/notify) contains a JSON object with
-`id`, `mac`, `peerId`, `distance`, `petId`, and `exchangeStatus`. For example, before pet
+`id`, `mac`, `peerId`, `distance`, `petId`, `exchangeStatus`, and `stepCount`. For example, before pet
 configuration it reports
-`{"id":"M5-AABBCCDDEEFF","mac":"AA:BB:CC:DD:EE:FF","peerId":"","distance":0,"petId":"","exchangeStatus":"NO PET"}`.
+`{"id":"M5-AABBCCDDEEFF","mac":"AA:BB:CC:DD:EE:FF","peerId":"","distance":0,"petId":"","exchangeStatus":"NO PET","stepCount":0}`.
 The peer fields show the closest recent Core2. After configuration, `petId`
 contains the saved ID. Core2 updates the readable status and notifies Android
 when it changes, and displays the last received ID even while disconnected.
@@ -27,6 +27,23 @@ each data frame on the status characteristic. After saving the ID, it sends
 over the same framing; Android ACKs those frames. Invalid device IDs and
 empty or malformed pet IDs are ignored. A successful application ACK means
 the new ID was saved.
+
+## Step count
+
+The Core2 samples its built-in accelerometer every 25 ms in a separate task,
+so BLE connection setup and audio work do not stop sampling. It detects
+repeated peaks in the acceleration magnitude, independent of device
+orientation, and rejects peaks that are too close together or isolated. The
+threshold and cadence limits target carrying the Core2 in a pocket, with a
+lower peak threshold to detect lighter steps. Actual walking tests are needed
+to calibrate them.
+The screen shows a cumulative `STEPS` count. The count is kept in Preferences
+across reboot and saved after 50 new steps, one minute, or ten seconds of
+inactivity, whichever comes first. A sudden power loss may lose steps since
+the last save. The BLE status JSON includes the numeric `stepCount` field;
+when connected, Core2 notifies Android of changes at most once every two
+seconds and defers these notifications during audio activity. If the IMU is
+unavailable, the screen shows `IMU N/A`.
 
 ## Pet exchange
 

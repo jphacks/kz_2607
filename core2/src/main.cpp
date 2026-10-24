@@ -8,6 +8,7 @@
 #include "peer_distance.h"
 #include "pet_config.h"
 #include "peer_exchange.h"
+#include "step_counter.h"
 
 namespace {
 
@@ -37,7 +38,8 @@ String statusJson() {
          "\",\"peerId\":\"" + peerId + "\",\"distance\":" +
          String(found ? peer.meters : 0, 3) + ",\"petId\":\"" +
          petConfigId() + "\",\"exchangeStatus\":\"" +
-         petConfigExchangeStatus() + "\"}";
+         petConfigExchangeStatus() + "\",\"stepCount\":" +
+         String(stepCounterCount()) + "}";
 }
 
 class ServerCallbacks : public NimBLEServerCallbacks {
@@ -77,6 +79,16 @@ void drawScreen() {
   M5.Display.setTextSize(2);
   M5.Display.setCursor(16, 20);
   M5.Display.print("Core2 BLE");
+  M5.Display.setTextSize(1);
+  M5.Display.setCursor(190, 11);
+  M5.Display.print("STEPS");
+  M5.Display.setTextSize(2);
+  M5.Display.setCursor(190, 23);
+  if (stepCounterAvailable()) {
+    M5.Display.print(stepCounterCount());
+  } else {
+    M5.Display.print("IMU N/A");
+  }
 
   if (petConfigExchangePending()) {
     M5.Display.fillRoundRect(8, 45, M5.Display.width() - 16, 25, 4,
@@ -182,6 +194,7 @@ void setup() {
   Serial.begin(115200);
   M5.begin(M5.config());
   voiceBegin();
+  stepCounterBegin();
   startBle();
   drawScreen();
 }
@@ -203,8 +216,13 @@ void loop() {
   static uint32_t lastPetRevision = 0;
   static uint32_t lastPetNotifyRevision = 0;
   static uint32_t lastStatusPeerRevision = 0;
+  static uint32_t lastStatusStepCount = 0;
+  static uint32_t lastDrawStepCount = 0;
   static unsigned long lastStatusRefresh = 0;
+  static unsigned long lastStepStatusRefresh = 0;
   static unsigned long lastDraw = 0;
+  const uint32_t steps = stepCounterCount();
+  stepCounterUpdate(!audioBusy);
   if (petConfigRevision() != lastPetNotifyRevision) {
     lastPetNotifyRevision = petConfigRevision();
     const String json = statusJson();
@@ -216,6 +234,13 @@ void loop() {
     lastStatusPeerRevision = peerDistanceRevision();
     lastStatusRefresh = millis();
     statusCharacteristic->setValue(statusJson().c_str());
+  }
+  if (steps != lastStatusStepCount && !audioBusy &&
+      millis() - lastStepStatusRefresh >= 2000) {
+    lastStatusStepCount = steps;
+    lastStepStatusRefresh = millis();
+    statusCharacteristic->setValue(statusJson().c_str());
+    if (connected) statusCharacteristic->notify();
   }
   if (connectionChanged) {
     connectionChanged = false;
@@ -230,6 +255,7 @@ void loop() {
     lastReplyRevision = replyReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
     lastPetRevision = petConfigRevision();
+    lastDrawStepCount = steps;
     lastDraw = millis();
   } else if (((voiceRevision() != lastVoiceRevision ||
                replyReceiverRevision() != lastReplyRevision) &&
@@ -238,12 +264,14 @@ void loop() {
              ((petConfigRevision() != lastPetRevision ||
                peerDistanceRevision() != lastPeerRevision) &&
               millis() - lastDraw >= 250) ||
+              (steps != lastDrawStepCount && millis() - lastDraw >= 250) ||
              (!audioBusy && millis() - lastDraw >= 1000)) {
     drawScreen();
     lastVoiceRevision = voiceRevision();
     lastReplyRevision = replyReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
     lastPetRevision = petConfigRevision();
+    lastDrawStepCount = steps;
     lastDraw = millis();
   }
   delay(2);
