@@ -26,10 +26,14 @@ def validate_device_id(device_id):
 def new_pet(uid, now):
     return {
         "creatorUid": uid,
+        "ownerUid": uid,  # いまの持ち主。交換のたびに変わる
+        "generationStartedAt": now,  # いまの代が始まった日時
         "createdAt": now,
         "name": None,
         "personalityAxes": {name: 0.5 for name in AXIS_NAMES},
         "learnedWords": [],
+        "points": 0.0,
+        "gauge": 0.0,
         "generation": 1,  # 手渡しされるたびに、1ずつ増える
     }
 

@@ -6,8 +6,10 @@ from datetime import timedelta, timezone
 from .adapters import AiCallError
 from .audio_codec import CORE2_RATE, wav_to_core2_adpcm
 from .errors import ApiError
+from .growth import add_talk
 from .learn import learn_words
 from .register import validate_device_id
+from .talklog import record_turn
 from .store import run_in_transaction
 from .wav import describe_wav, parse_recording
 
@@ -169,4 +171,8 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
             {"currentPetId": now_pet},
         )
     result["learnedWords"] = learn_words(db, uid, device_id, pet_id, ai_words, now, run_tx)
+    record_turn(db, pet_id, pet.get("generation", 1), transcript, reply, now, run_tx)
+    progress = add_talk(db, uid, device_id, pet_id, now, run_tx)
+    if progress:
+        result["gauge"] = progress["gauge"]
     return result

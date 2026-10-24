@@ -9,6 +9,7 @@
 import re
 
 from .errors import ApiError
+from .growth import require_full_gauge
 from .register import validate_device_id
 from .store import run_in_transaction
 
@@ -113,11 +114,22 @@ def report_exchange(db, uid, data, now, run_tx=run_in_transaction):
         if my.get("currentPetId") != given or peer.get("currentPetId") != got:
             raise ApiError("failed-precondition", "報告が、サーバーの状態と合いません")
 
+        if require_full_gauge(db):
+            not_ready = [pid for pid, snap in ((given, given_snap), (got, got_snap))
+                         if snap.to_dict().get("gauge", 0.0) < 1.0]
+            if not_ready:
+                raise ApiError(
+                    "failed-precondition", "ゲージが満タンではありません", "pet_not_ready",
+                    {"petIds": not_ready},
+                )
+
         gen_given = given_snap.to_dict().get("generation", 1) + 1
         gen_got = got_snap.to_dict().get("generation", 1) + 1
         handoff_ref = db.collection("handoffs").document()
-        tx.update(given_ref, {"generation": gen_given})
-        tx.update(got_ref, {"generation": gen_got})
+        tx.update(given_ref, {"generation": gen_given, "points": 0.0, "gauge": 0.0,
+                              "ownerUid": peer.get("ownerUid"), "generationStartedAt": now})
+        tx.update(got_ref, {"generation": gen_got, "points": 0.0, "gauge": 0.0,
+                            "ownerUid": uid, "generationStartedAt": now})
         tx.update(my_ref, {"currentPetId": got, "lastHandoffId": handoff_ref.id})
         tx.update(peer_ref, {"currentPetId": given, "lastHandoffId": handoff_ref.id})
         record = {
