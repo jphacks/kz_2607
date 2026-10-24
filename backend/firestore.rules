@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // クライアントからの読み書きはすべて拒否。書き込みはバックエンドの関数だけが行う。
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
