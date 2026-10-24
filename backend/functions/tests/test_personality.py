@@ -156,3 +156,45 @@ def test_record_progress_validation():
     with pytest.raises(ApiError) as e:
         record_progress(db, "u1", {"deviceId": "nope"}, NOW, run_tx)
     assert e.value.code == "not-found"
+
+
+# ---- 見直し(AI担当の指摘) ----
+from petlogic.personality import is_question  # noqa: E402
+
+
+def test_night_is_counted_in_japan_time_even_when_stored_in_utc():
+    utc = timezone.utc
+    # UTC 14:00 = 日本の23:00(夜)。UTC 03:00 = 日本の12:00(昼)
+    levels = talk_levels([{"text": "a", "at": datetime(2026, 10, 24, 14, tzinfo=utc)},
+                          {"text": "b", "at": datetime(2026, 10, 24, 3, tzinfo=utc)}])
+    assert levels["nightowl"][0] == 0.5
+    # 日本の翌日の朝(UTC では前日の夜)も、同じ日の会話として数える
+    two_days = talk_levels([{"text": "a", "at": datetime(2026, 10, 24, 20, tzinfo=utc)},   # 日本 10/25 05:00
+                            {"text": "b", "at": datetime(2026, 10, 24, 22, tzinfo=utc)}])  # 日本 10/25 07:00
+    assert two_days["talkative"][0] == pytest.approx(2 / 20)
+
+
+def test_questions_without_question_mark():
+    assert is_question("今日の天気を教えて") and is_question("これって何")
+    assert is_question("明日行くの") and is_question("もう寝たか。")
+    assert not is_question("ドーナツを食べたよ") and not is_question("おはよう")
+
+
+def test_new_topic_weight_can_be_turned_off():
+    turns = [turn("おはよう"), turn("学校でテストがあった"), turn("犬を飼いたい")]  # 質問なし・話題はばらばら
+    assert talk_levels(turns)["curious"][0] == pytest.approx(0.5)  # 新しい話題だけで 0.5 から始まる
+    assert talk_levels(turns, topic_weight=0.0)["curious"][0] == 0.0  # 質問だけで決める
+
+
+def test_update_every_and_topic_weight_are_configurable():
+    db, pet = setup()
+    db.docs[("config", "game")] = {"personalityUpdateEvery": 5, "personalityEta": 1.0, "personalityMaxShift": 1.0}
+    for _ in range(4):
+        talk(db, pet, "やばい", hour=23)
+    assert maybe_update_personality(db, pet, NOW, run_tx)["updated"] is False  # 5回たつまで更新しない
+    talk(db, pet, "やばい", hour=23)
+    assert maybe_update_personality(db, pet, NOW, run_tx)["updated"] is True
+    db.docs[("config", "game")] = {"personalityUpdateEvery": 0, "curiousNewTopicWeight": 7}  # 不正な値は既定に戻る
+    from petlogic.personality import _config
+    cfg = _config(db)
+    assert cfg["updateEvery"] == 1.0 and cfg["topicWeight"] == 0.5

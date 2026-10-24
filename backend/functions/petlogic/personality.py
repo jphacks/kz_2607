@@ -19,7 +19,8 @@ from .store import run_in_transaction
 from .talklog import read_turns
 
 JST = timezone(timedelta(hours=9))
-UPDATE_EVERY_TALKS = 2  # 会話がこの回数ふえたら更新する(満タン10回の1/6 ≒ 2)
+UPDATE_EVERY_TALKS = 2  # 会話がこの回数ふえたら更新する(式②: ΔP ≥ P_full ÷ 6。いまの P_full は満タンの10回なので約2)
+DEFAULT_TOPIC_WEIGHT = 0.5  # 好奇心のうち「新しい話題」の割合。0にすると、質問の割合だけで決める
 UPDATE_AFTER_HOURS = 24  # 前回から、この時間たっていれば、1回でも更新する
 DEFAULT_ETA = 0.12  # 近づく速さ
 DEFAULT_MAX_SHIFT = 0.2  # 1人の飼い主で動ける幅
@@ -35,7 +36,15 @@ LOGIC_WORDS = ("なぜなら", "だから", "つまり", "理由", "比べ", "�
                "結局", "したがって", "なので", "根拠", "数字", "割合", "確率")
 SENSE_WORDS = ("すごい", "楽しい", "なんか", "めっちゃ", "気がする", "やばい", "うれしい", "嬉しい", "かわいい",
                "好き", "最高", "わくわく", "ドキドキ", "感じ")
-QUESTION_WORDS = ("？", "?", "どうして", "なんで", "どう思", "教えて", "って何", "とは", "ですか", "かな")
+QUESTION_WORDS = ("？", "?", "どうして", "なんで", "なぜ", "どう思", "教えて", "って何", "とは", "ですか", "かな")
+QUESTION_ENDINGS = ("か", "の")  # 文の終わり。音声から変換した文字には「？」が付かないことがあるので、これも見る
+
+
+def is_question(text):
+    text = text.strip()
+    if any(w in text for w in QUESTION_WORDS):
+        return True
+    return text.rstrip("。.!！ 　").endswith(QUESTION_ENDINGS)
 
 
 def _bigrams(text):
@@ -52,7 +61,7 @@ def _hour(turn):
     return at.astimezone(JST).hour if at is not None else None
 
 
-def talk_levels(turns):
+def talk_levels(turns, topic_weight=DEFAULT_TOPIC_WEIGHT):
     """会話から、{軸: (水準L, 信頼度c)}。会話がなければ空。"""
     texts = [t.get("text", "") for t in turns]
     n = len(texts)
@@ -78,8 +87,9 @@ def talk_levels(turns):
         if not seen or max(_jaccard(grams, s) for s in seen) < 0.2:
             new += 1
         seen.append(grams)
-    asked = sum(1 for text in texts if any(w in text for w in QUESTION_WORDS))
-    levels["curious"] = (0.5 * (new / n) + 0.5 * min(1.0, (asked / n) / 0.3), conf)
+    asked = sum(1 for text in texts if is_question(text))
+    levels["curious"] = (topic_weight * (new / n) + (1 - topic_weight) * min(1.0, (asked / n) / 0.3), conf)
+    logging.info("性格の材料: 会話%d件 新しい話題%.2f 質問%.2f 論理%d 感覚%d", n, new / n, asked / n, logic, sense)
     return levels
 
 
@@ -110,11 +120,17 @@ def _config(db):
     snap = db.collection("config").document("game").get()
     cfg = snap.to_dict() if snap.exists else {}
 
-    def number(key, default):
+    def number(key, default, high=None):
         v = cfg.get(key)
-        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 else default
+        ok = isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 and (high is None or v <= high)
+        return float(v) if ok else default
 
-    return number("personalityEta", DEFAULT_ETA), number("personalityMaxShift", DEFAULT_MAX_SHIFT)
+    return {
+        "eta": number("personalityEta", DEFAULT_ETA),
+        "maxShift": number("personalityMaxShift", DEFAULT_MAX_SHIFT),
+        "updateEvery": max(1.0, number("personalityUpdateEvery", UPDATE_EVERY_TALKS)),
+        "topicWeight": number("curiousNewTopicWeight", DEFAULT_TOPIC_WEIGHT, high=1.0),
+    }
 
 
 def _daily(db, pet_id, generation):
@@ -128,17 +144,18 @@ def maybe_update_personality(db, pet_id, now, run_tx=run_in_transaction, from_pr
     条件: 前回から会話が UPDATE_EVERY_TALKS 回ふえた、または、前回から24時間たって何か材料がある。
     """
     try:
-        claim = _claim(db, pet_id, now, run_tx, from_progress)
+        cfg = _config(db)
+        claim = _claim(db, pet_id, now, run_tx, from_progress, cfg["updateEvery"])
         if claim is None:
             return {"updated": False}
         pet = claim
         generation = pet.get("generation", 1)
-        levels = {**talk_levels(read_turns(db, pet_id, generation)),
+        levels = {**talk_levels(read_turns(db, pet_id, generation), cfg["topicWeight"]),
                   **sensor_levels(_daily(db, pet_id, generation))}
         if not levels:
             return {"updated": False}
-        eta, max_shift = _config(db)
-        axes = update_axes(pet.get("personalityAxes", {}), pet.get("axesBase", {}), levels, eta, max_shift)
+        axes = update_axes(pet.get("personalityAxes", {}), pet.get("axesBase", {}), levels,
+                           cfg["eta"], cfg["maxShift"])
         db.collection("pets").document(pet_id).update({"personalityAxes": axes})
         return {"updated": True, "personalityAxes": axes}
     except Exception as e:
@@ -146,7 +163,7 @@ def maybe_update_personality(db, pet_id, now, run_tx=run_in_transaction, from_pr
         return {"updated": False}
 
 
-def _claim(db, pet_id, now, run_tx, from_progress):
+def _claim(db, pet_id, now, run_tx, from_progress, update_every=UPDATE_EVERY_TALKS):
     """更新してよければ、印(前回の更新時点)を進めて、ペットの情報を返す。二重に更新しない。"""
 
     def work(tx):
@@ -159,7 +176,7 @@ def _claim(db, pet_id, now, run_tx, from_progress):
         gained = points - pet.get("axesUpdatedPoints", 0.0)
         last = pet.get("axesUpdatedAt") or pet.get("generationStartedAt") or pet.get("createdAt")
         hours = (now - last).total_seconds() / 3600 if last is not None else 0
-        due = gained >= UPDATE_EVERY_TALKS or (hours >= UPDATE_AFTER_HOURS and (gained >= 1 or from_progress))
+        due = gained >= update_every or (hours >= UPDATE_AFTER_HOURS and (gained >= 1 or from_progress))
         if not due:
             return None
         marks = {"axesUpdatedPoints": points, "axesUpdatedAt": now}
