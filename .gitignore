@@ -1,6 +1,16 @@
-
-# ai/server
-ai/server/.env
-ai/server/__pycache__/
-ai/server/*.jsonl
+**/.env
+**/.venv/
+**/__pycache__/
+*.pyc
 .DS_Store
+ai/**/*.jsonl
+# 重み・モデル（大きいので Git に入れない）
+*.pt
+*.pth
+*.safetensors
+*.gguf
+*.bin
+ai/chat/talk/lora*/
+ai/chat/talk/llmjp4/
+ai/ruri_cache/
+ai/chat/tiny_lora/

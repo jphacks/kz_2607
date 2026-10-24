@@ -1,0 +1,18 @@
+{
+ "run": "v9_s2",
+ "best_epoch": 26,
+ "val_loss": 0.855,
+ "val_route_acc": 0.933,
+ "val_reaction_f1": 0.923,
+ "val_safety_recall": 0.824,
+ "val_unsafe_recall": 0.941,
+ "settings": {
+  "dropout": 0.2,
+  "weight_decay": 0.01,
+  "lr": 0.0003,
+  "d_model": 128,
+  "n_layers": 2,
+  "schedule": "cosine",
+  "seed": 2
+ }
+}
