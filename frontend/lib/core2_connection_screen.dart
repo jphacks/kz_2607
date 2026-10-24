@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'cloud_functions_screen.dart';
 import 'foundation/services/core2_ble.dart';
 
 /// Temporary diagnostic UI; product screens will be implemented separately.
@@ -31,6 +32,13 @@ class _Core2ConnectionPageState extends State<Core2ConnectionPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(builder: (_) => const CloudFunctionsScreen()),
+            ),
+            icon: const Icon(Icons.cloud_outlined),
+            label: const Text('Cloud Functionsの疎通確認'),
+          ),
           const Text('Android実機で使用してください。Core2側は共有UUIDのRead / Notifyが必要です。'),
           const SizedBox(height: 12),
           Text(ble.status, style: Theme.of(context).textTheme.titleMedium),
@@ -65,13 +73,16 @@ class _Core2ConnectionPageState extends State<Core2ConnectionPage> {
             ),
           const Divider(),
           const Text('Core2の録音音声'),
-          FilledButton(
-            onPressed:
-                ble.canReceiveVoice && !ble.voiceStarting && !ble.voiceListening
-                ? ble.startVoice
-                : null,
-            child: Text(ble.voiceStarting ? '準備中…' : '音声受信を開始'),
-          ),
+          const Text('接続が完了すると、自動で音声の受信準備をします。Core2で録音してください。'),
+          if (ble.voiceStarting) const LinearProgressIndicator(),
+          if (ble.canReceiveVoice &&
+              !ble.busy &&
+              !ble.voiceStarting &&
+              !ble.voiceListening)
+            OutlinedButton(
+              onPressed: ble.startVoice,
+              child: const Text('音声受信を再試行'),
+            ),
           Text(ble.voiceStatus),
           if (ble.ready && !ble.canReceiveVoice)
             const Text('Core2側に音声用のBLE特性が必要です。'),

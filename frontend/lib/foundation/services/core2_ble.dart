@@ -171,11 +171,17 @@ class Core2Ble extends ChangeNotifier {
       }, onError: (Object e) => _log('受信エラー: $e'));
       await characteristic.setNotifyValue(true);
       if (characteristic.properties.read) await characteristic.read();
-      if (device != target) throw StateError('初期化中に切断されました');
+      if (_disposed || device != target) throw StateError('初期化中に切断されました');
       ready = true;
       status = '接続済み・受信待ち';
       _log('Notify購読開始');
-      if (!canReceiveVoice) _log('音声用特性がありません。Core2側の実装が必要です');
+      if (canReceiveVoice) {
+        // Match the prototype: subscribe to voice automatically after BLE setup.
+        await startVoice();
+      } else {
+        voiceStatus = '音声用特性がありません。Core2側の実装を確認してください';
+        _log(voiceStatus);
+      }
     } catch (e) {
       _log('接続失敗: $e');
       await disconnect();
