@@ -9,7 +9,7 @@ import logging
 from collections import Counter
 from datetime import timezone, timedelta
 
-from .memory import ANY_PLACEHOLDER, JST, read_name_map, summarize_memories
+from .memory import ANY_PLACEHOLDER, JST, read_name_map, refresh_cache, summarize_memories
 from .store import run_in_transaction
 from .talklog import read_turns
 
@@ -138,6 +138,7 @@ def finish_journeys(db, handoff_id, ask_ai, now, run_tx=run_in_transaction):
             if summarize_memories(db, pet_id, generation, ask_ai, now, force=True, run_tx=run_tx)["status"] == "failed":
                 failed = True
             add_journey_summary(db, pet_id, generation, ask_ai, run_tx)
+            refresh_cache(db, pet_id, now)  # 新しい飼い主の思い出(前の飼い主たちの分も)を用意する
         except Exception as e:
             failed = True
             logging.error("旅の記録(要約)に失敗しました: %s: %s", type(e).__name__, str(e)[:300].replace("\n", " "))

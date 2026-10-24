@@ -13,7 +13,7 @@ from petlogic.journey import finish_journeys, start_journeys
 from petlogic.naming import set_pet_name
 from petlogic.letters import generate_letters, get_letters
 from petlogic.llm import openai_chat
-from petlogic.memory import BATCH_TURNS, summarize_memories
+from petlogic.memory import batch_turns, summarize_memories
 from petlogic.personality import record_progress
 from petlogic.pet import get_pet
 from petlogic.push import fcm_notify, register_push_token
@@ -174,9 +174,12 @@ def summarizeHandoff(event: firestore_fn.Event[firestore_fn.DocumentSnapshot]):
 
 @firestore_fn.on_document_written(document="pets/{petId}/talkLogs/{generation}", secrets=[OPENAI_API_KEY], timeout_sec=300)
 def summarizeMemories(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.DocumentSnapshot]]):
-    """会話が10往復たまるたびに、裏で思い出にまとめる(会話の返事は待たせない)。"""
+    """会話が数往復(既定5)たまるたびに、裏で思い出にまとめる(会話の返事は待たせない)。"""
     after = event.data.after
-    if after is None or not after.exists or len(pending_turns(after.to_dict())) < BATCH_TURNS:
+    if after is None or not after.exists:
+        return
+    pending = len(pending_turns(after.to_dict()))
+    if pending < 2 or pending < batch_turns(firestore.client()):  # 設定を読むのは、2往復以上たまってから
         return
     key, model = OPENAI_API_KEY.value, os.environ.get("OPENAI_MODEL")
     summarize_memories(firestore.client(), event.params["petId"], int(event.params["generation"]),

@@ -145,7 +145,7 @@
 5. 結果が分からないとき(通信切れなど)は、同じ内容で再送する。それでも分からなければ `getExchangeResult` で確認する。`unknown` なら `cancelExchange` を呼び、`cancelled` を確認してから戻す
 
 ## ゲージ
-- ペットとの会話(`talkToPet` が成功したとき)が、1回ごとに、ゲージを進める。**10回で満タン(1.0)**。アプリから何かを送る必要はない
+- ペットとの会話(`talkToPet` が成功したとき)が、1回ごとに、ゲージを進める。**10回で満タン(1.0)**(`config/game.talksToFull` で変える。本番は100)。アプリから何かを送る必要はない
 - 声が聞き取れなかったとき(`no_speech`)は、数えない
 - `talkToPet` の戻り値に `gauge` が入る。`getPet` でも読める
 - 交換が確定すると、2匹のゲージは0に戻る(新しい飼い主のもとで、貯め直す)
@@ -242,12 +242,14 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 | キー | 内容 |
 |---|---|
 | `generation` | ペットの今の代(数字) |
-| `memories` | `[{id, text, createdAt}]` 最新30件。今の飼い主・今の代のものだけ。名前は `{shop_1}` のような伏せ字 |
+| `memories` | `[{id, text, generation, createdAt}]` 最新30件。今の飼い主が育てた代のもの(元の飼い主に戻ってきたら、昔の分も入る)。名前は `{shop_1}` のような伏せ字で、`nameMap` で本当の名前に戻せる。`createdAt` はISO文字列 |
+| `pastMemories` | `[{id, text, generation, createdAt}]` 前の飼い主たちの思い出(最大10件)。直前の代から最大7件+1代目から最大3件(直前が1代目なら1代目から10件)、新しい順。**伏せ字は「あの人」「あのお店」などにぼかし済み**。今の飼い主が育てた代の分は入らない |
 | `nameMap` | `{"{shop_1}": "ミスド"}` 伏せ字と本当の名前の対応(この飼い主のもの) |
 | `journeys` | `[{generation, learnedWords, talkCount, timeOfDay?, summary?}]` 前の持ち主たちの旅の記録 |
 
-- 前の持ち主の思い出・nameMap は、次の飼い主には渡さない。journeys だけが引き継がれる。
-- 要約(`summarizeMemories`)は Firestore トリガーで、会話が10往復たまるたびに裏で動く。`/talk` の返事は待たせない。
+- 前の持ち主の nameMap は、次の飼い主には渡さない。前の持ち主の思い出は、`pastMemories`(ぼかし済み)と journeys だけが引き継がれる。
+- 交換が確定した少しあと(裏の処理が終わったあと)に、`memoryCache/current` を新しい飼い主用に作り直す。それまでは `memories`・`pastMemories` とも空。
+- 要約(`summarizeMemories`)は Firestore トリガーで、会話が5往復(既定。`config/game.summarizeEveryTurns`、本番は10など)たまるたびに裏で動く。`/talk` の返事は待たせない。
 - 交換時(`summarizeHandoff`)に、終わった代の残りの会話(3往復以上)も要約し、journeys に値(言葉・会話数・時間帯)と summary を書く。
 - 思い出の日付(`createdAt`)は、出来事のあった日の12:00(JST)。
 - モデル名は `functions/.env` の `OPENAI_MODEL`(仕様書の `gpt-6-luna` ではなく、実際の `gpt-5.6-luna`)。
@@ -281,7 +283,9 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 
 | キー | 既定 | 意味 |
 |---|---|---|
-| `personalityUpdateEvery` | 2 | 会話がこの回数ふえるごとに更新する。資料の式②(ΔP ≥ P_full÷6)で、いまの満タンは10回なので約2。**1人の飼い主のもとで長く話す(満タン後も交換しない)なら、17など大きくする** |
+| `personalityUpdateEvery` | 2 | 会話がこの回数ふえるごとに更新する。資料の式②(ΔP ≥ P_full÷6)で、P_full が満タンの10回(デモ)なら約2。本番(100回)なら約17。**1人の飼い主のもとで長く話す(満タン後も交換しない)なら、17など大きくする** |
+| `talksToFull` | 10 | ゲージが満タンになる会話の回数。デモは10、本番は100 |
+| `summarizeEveryTurns` | 5 | 何往復ごとに思い出を要約するか(2以上)。デモは5、本番は10など |
 | `personalityEta` | 0.12 | 近づく速さ。デモでは 0.5 などにすると、変化が見えやすい |
 | `personalityMaxShift` | 0.2 | 1人の飼い主で動ける幅 |
 | `curiousNewTopicWeight` | 0.5 | 好奇心のうち「新しい話題」の割合(0〜1)。実際の会話で「新しい話題」が8割を超えて差がつかないときは、0 にすると、質問の割合だけで決まる |
