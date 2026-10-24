@@ -8,10 +8,10 @@ configure the transfer before recording is enabled.
 ## Pet ID configuration and status
 
 The status characteristic (`...0002`, read/notify) contains a JSON object with
-`id`, `mac`, `peerId`, `distance`, and `petId`. For example, before pet
+`id`, `mac`, `peerId`, `distance`, `petId`, and `exchangeStatus`. For example, before pet
 configuration it reports
-`{"id":"M5-AABBCCDDEEFF","mac":"AA:BB:CC:DD:EE:FF","peerId":"","distance":0,"petId":""}`.
-The peer fields are currently placeholders. After configuration, `petId`
+`{"id":"M5-AABBCCDDEEFF","mac":"AA:BB:CC:DD:EE:FF","peerId":"","distance":0,"petId":"","exchangeStatus":"NO PET"}`.
+The peer fields show the closest recent Core2. After configuration, `petId`
 contains the saved ID. Core2 updates the readable status and notifies Android
 when it changes, and displays the last received ID even while disconnected.
 It reloads the ID from ESP32 Preferences after reboot, and the saved value
@@ -27,6 +27,44 @@ each data frame on the status characteristic. After saving the ID, it sends
 over the same framing; Android ACKs those frames. Invalid device IDs and
 empty or malformed pet IDs are ignored. A successful application ACK means
 the new ID was saved.
+
+## Pet exchange
+
+Two Core2 devices use the same RSSI based distance estimate as the screen.
+Exchange setup starts only after at least three fresh advertisements keep the
+estimated distance at or below **0.1 m** for 700 ms. The Core2 with the lower
+device ID connects to the other Core2. It reads the peer's pet ID and exchange
+sequence from the read only characteristic `...0004`, then writes an exchange
+request to `...0009`. The peer independently checks its own measured distance
+and current pet ID, saves the same transaction ID, and exposes that ID on
+`...0004`. The initiator saves its candidate after reading that confirmation.
+The request on `...0009` is binary: `X`, version 1, the sender's 12 ASCII hex
+device ID, an 8-byte little-endian transaction ID, a 4-byte little-endian
+exchange sequence, two reserved zero bytes, two pet ID lengths, then the
+sender and receiver pet IDs. Pet IDs are limited to 64 bytes for this peer
+protocol. The receiver verifies the sender, transaction, pet IDs, and its own
+recent distance reading before accepting it.
+Both devices keep their candidate across BLE disconnect, but discard it on
+reboot. A discarded transaction ID is not recovered from the other Core2.
+Moving farther than 0.15 m rearms another attempt after a terminal result.
+If only one device saved the candidate before a disconnection, the other can
+recover the same transaction from the peer's read only status on the next
+close encounter.
+
+After Android sends and Core2 acknowledges `pet_config` on characteristic
+`...0003`, Core2 repeatedly notifies `exchange_pending` on `...0002` using the
+20-byte `F` framing below. The payload has `transactionId`, `myDeviceId`,
+`peerDeviceId`, `givenPetId`, `gotPetId`, and `distanceMeters`. A missing or
+greater than 0.1 m distance is rejected by the frontend. Android responds on
+`...0003` with `exchange_result` containing the same transaction and pet IDs
+and `result: "done"`, `"already_done"`, `"rejected"`, or `"confirming"`.
+Core2 changes the saved pet ID only for a confirmed result, retains the
+candidate while confirming, and replies with `exchange_result_ack`. It accepts
+repeated terminal results after reboot. Recording pauses while a candidate is
+pending.
+
+The distance is an RSSI estimate and needs calibration on the actual devices.
+End-to-end exchange also needs the Android and backend changes to be deployed.
 
 ## Nearby Core2 distance
 

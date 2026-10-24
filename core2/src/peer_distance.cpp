@@ -16,6 +16,7 @@ constexpr float kPathLoss = 2.0f;
 struct Peer {
   char address[18] = {};
   int rssi = -127;
+  uint8_t addressType = 0;
   unsigned long lastSeen = 0;
   bool valid = false;
 };
@@ -58,6 +59,7 @@ class PeerScanCallbacks : public NimBLEScanCallbacks {
         strcmp(peer.address, address.c_str()) == 0;
     // Favor recent measurements so the displayed distance follows movement.
     peer.rssi = samePeer ? (peer.rssi + rssi * 2) / 3 : rssi;
+    peer.addressType = device->getAddress().getType();
     memcpy(peer.address, address.c_str(), 18);
     peer.lastSeen = now;
     peer.valid = true;
@@ -109,6 +111,8 @@ bool peerDistanceRead(PeerDistanceReading& reading) {
   if (!found) return false;
   memcpy(reading.address, closest.address, sizeof(reading.address));
   reading.rssi = closest.rssi;
+  reading.seenAt = closest.lastSeen;
+  reading.addressType = closest.addressType;
   reading.meters = powf(10.0f,
       (kRssiAtOneMeter - reading.rssi) / (10.0f * kPathLoss));
   return true;
@@ -119,4 +123,29 @@ uint32_t peerDistanceRevision() {
   const uint32_t current = revision;
   portEXIT_CRITICAL(&peersMux);
   return current;
+}
+
+bool peerDistanceReadAddress(const char* address, PeerDistanceReading& reading,
+                             unsigned long maxAgeMs) {
+  Peer match;
+  bool found = false;
+  const unsigned long now = millis();
+  portENTER_CRITICAL(&peersMux);
+  for (const Peer& peer : peers) {
+    if (peer.valid && now - peer.lastSeen <= maxAgeMs &&
+        strcmp(peer.address, address) == 0) {
+      match = peer;
+      found = true;
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&peersMux);
+  if (!found) return false;
+  memcpy(reading.address, match.address, sizeof(reading.address));
+  reading.rssi = match.rssi;
+  reading.seenAt = match.lastSeen;
+  reading.addressType = match.addressType;
+  reading.meters = powf(10.0f,
+      (kRssiAtOneMeter - reading.rssi) / (10.0f * kPathLoss));
+  return true;
 }
