@@ -68,7 +68,8 @@ if (mode === "start") {
   }
   if (audioBase64) {
     for (const name of ["A", "B"]) {
-      for (let i = 1; i <= 2; i++) {
+      for (let i = 1; i <= Number(process.env.TALKS || 2); i++) {
+        await new Promise((r) => setTimeout(r, Number(process.env.TALK_GAP_MS || 0)));
         try {
           const r = await call("talkToPet", { deviceId: users[name].deviceId, audioBase64, wantAudio: false }, users[name].token);
           console.log(`会話 ${name}-${i}: ${r.status} 「${r.transcript}」→「${r.replyText}」 gauge=${r.gauge}`);

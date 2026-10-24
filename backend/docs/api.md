@@ -23,7 +23,7 @@
 | 項目 | 内容 |
 | --- | --- |
 | 送る | `deviceId` |
-| 返る | `deviceId`、`petId`、`name`(未設定は `null`)、`points`(会話の回数)、`gauge`(0〜1。会話3回で満タン)、`generation`(世代)、`personalityAxes`(6軸・0〜1)、`learnedWords`(覚えた言葉)、`createdAt`(ISO形式の文字列) |
+| 返る | `deviceId`、`petId`、`name`(未設定は `null`)、`points`(会話の回数)、`gauge`(0〜1。会話10回で満タン)、`generation`(世代)、`personalityAxes`(6軸・0〜1)、`learnedWords`(覚えた言葉)、`createdAt`(ISO形式の文字列) |
 
 - 飼い主のUIDなどは返さない。交換で端末のペットが変わっても、いまのペットを返す
 - ゲージは、会話するたびに進む(詳しくは下の「ゲージ」)
@@ -143,7 +143,7 @@
 5. 結果が分からないとき(通信切れなど)は、同じ内容で再送する。それでも分からなければ `getExchangeResult` で確認する。`unknown` なら `cancelExchange` を呼び、`cancelled` を確認してから戻す
 
 ## ゲージ
-- ペットとの会話(`talkToPet` が成功したとき)が、1回ごとに、ゲージを進める。**3回で満タン(1.0)**。アプリから何かを送る必要はない
+- ペットとの会話(`talkToPet` が成功したとき)が、1回ごとに、ゲージを進める。**10回で満タン(1.0)**。アプリから何かを送る必要はない
 - 声が聞き取れなかったとき(`no_speech`)は、数えない
 - `talkToPet` の戻り値に `gauge` が入る。`getPet` でも読める
 - 交換が確定すると、2匹のゲージは0に戻る(新しい飼い主のもとで、貯め直す)
