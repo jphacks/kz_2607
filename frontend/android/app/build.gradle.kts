@@ -5,6 +5,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// The backend supplies this file separately. Keep non-Firebase screens usable
+// until it arrives. Rebuild the app after adding the file.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.example.kz_2607"
     compileSdk = flutter.compileSdkVersion
@@ -13,10 +19,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
     defaultConfig {
@@ -41,4 +43,11 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// Keep Kotlin and Java bytecode targets aligned with the typed Kotlin DSL.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+    }
 }
