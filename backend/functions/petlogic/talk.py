@@ -1,5 +1,6 @@
 """音声会話。録音 → 文字 → AIの返答 → 声。"""
 import base64
+import logging
 from datetime import timedelta, timezone
 
 from .adapters import AiCallError
@@ -105,6 +106,7 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
     try:
         transcript, _confidence = recognize(pcm, rate, language, phrases)
     except Exception:
+        logging.exception("音声認識に失敗しました")
         raise ApiError("unavailable", "音声を文字にできませんでした", "stt_failed")
     base = {"petId": pet_id, "durationSec": round(seconds, 2)}
     if not transcript:
@@ -120,7 +122,8 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
             raise ApiError("unavailable", "AIがまだつながっていません", "ai_not_configured")
         try:
             reply = ai(url, build_ai_payload(transcript, pet_id, pet, now))
-        except AiCallError:
+        except AiCallError as e:
+            logging.error("AIの呼び出しに失敗しました: %s", e)
             raise ApiError("unavailable", "AIの返答を作れませんでした", "ai_failed")
     reply = reply[:MAX_REPLY_CHARS]
 
@@ -134,6 +137,7 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
             result["replyAudio"] = describe_wav(wav)
             result["audioStatus"] = "ok"
         except Exception:
+            logging.exception("音声合成に失敗しました")
             result["audioStatus"] = "failed"  # 文章は返す
 
     # 返答を作っている間に、交換でペットが変わっていないか

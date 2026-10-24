@@ -82,7 +82,7 @@ def cancelExchange(req: https_fn.CallableRequest):
     return _run(lambda: cancel_exchange(firestore.client(), uid, req.data, _now()))
 
 
-@https_fn.on_call(timeout_sec=120, memory=options.MemoryOption.MB_512, secrets=[TALK_API_KEY])
+@https_fn.on_call(invoker="public", timeout_sec=120, memory=options.MemoryOption.MB_512, secrets=[TALK_API_KEY])
 def talkToPet(req: https_fn.CallableRequest):
     """録音 → 文字 → AIの返答 → 声。仕様は docs/api.md。"""
     uid = _require_uid(req)
