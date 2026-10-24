@@ -6,6 +6,7 @@ import 'voice_cloud_service.dart';
 import 'reply_voice_sender.dart';
 import 'voice_transfer_metrics.dart';
 import 'voice_transfer.dart';
+import 'pet_config_transport.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
@@ -13,6 +14,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 class Core2Ble extends ChangeNotifier {
   static final serviceId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000001');
   static final statusId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000002');
+  static final commandId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000003');
   static final voiceDataId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000005');
   static final voiceControlId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000006');
   final voiceCloud = VoiceCloudService();
@@ -32,6 +34,10 @@ class Core2Ble extends ChangeNotifier {
 
   VoiceLink? _voice;
   ReplyVoiceSender? _reply;
+  PetConfigTransport? _petConfig;
+  String? _syncedPetId;
+  bool _syncingPetId = false;
+  String petConfigStatus = 'petIdはCore2へ未送信です';
   static final replyDataId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000007');
   static final replyAckId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000008');
   BluetoothCharacteristic? _voiceData, _voiceControl;
@@ -58,7 +64,7 @@ class Core2Ble extends ChangeNotifier {
   String status = '未接続';
 
   Core2Ble() {
-    voiceCloud.addListener(_refresh);
+    voiceCloud.addListener(_onVoiceCloudChanged);
     _subscriptions.add(
       FlutterBluePlus.onScanResults.listen((results) {
         for (final result in results) {
@@ -99,6 +105,41 @@ class Core2Ble extends ChangeNotifier {
 
   void _refresh() {
     if (!_disposed) notifyListeners();
+  }
+
+  void _onVoiceCloudChanged() {
+    _refresh();
+    unawaited(_syncPetId());
+  }
+
+  Future<void> _syncPetId() async {
+    final target = device;
+    final transport = _petConfig;
+    final petId = voiceCloud.petId;
+    final deviceId = voiceCloud.deviceId;
+    if (_disposed || !ready || target == null || transport == null ||
+        petId == null || deviceId == null ||
+        _syncingPetId || _syncedPetId == petId) return;
+    if (deviceId != voiceCloud.connectionDeviceId) return;
+    _syncingPetId = true;
+    petConfigStatus = 'petIdをCore2へ送信中…';
+    _refresh();
+    try {
+      await transport.sendConfig(deviceId: deviceId, petId: petId);
+      if (_disposed || device != target || _petConfig != transport) return;
+      _syncedPetId = petId;
+      petConfigStatus = 'Core2へのpetId設定を確認しました';
+      _log(petConfigStatus);
+    } catch (e) {
+      if (_disposed || device != target || _petConfig != transport) return;
+      petConfigStatus = 'petId設定を確認できません: $e';
+      _log(petConfigStatus);
+    } finally {
+      if (_petConfig == transport) {
+        _syncingPetId = false;
+        _refresh();
+      }
+    }
   }
 
   void _log(String message) {
@@ -167,7 +208,7 @@ class Core2Ble extends ChangeNotifier {
         }
       });
       final services = await target.discoverServices();
-      BluetoothCharacteristic? characteristic, replyData, replyAck;
+      BluetoothCharacteristic? characteristic, command, replyData, replyAck;
       for (final service in services) {
         if (service.uuid != serviceId) continue;
         for (final value in service.characteristics) {
@@ -178,6 +219,7 @@ class Core2Ble extends ChangeNotifier {
             replyAck = value;
           }
           if (value.uuid == statusId) characteristic = value;
+          if (value.uuid == commandId && value.properties.write) command = value;
           if (value.uuid == voiceDataId && value.properties.notify) {
             _voiceData = value;
           }
@@ -189,8 +231,18 @@ class Core2Ble extends ChangeNotifier {
       if (characteristic == null || !characteristic.properties.notify) {
         throw StateError('対象のNotify特性がありません。Core2側のUUID・実装を確認してください');
       }
+      if (command != null) {
+        final configCommand = command;
+        _petConfig = PetConfigTransport(
+          (bytes) => configCommand.write(bytes, withoutResponse: false),
+        );
+        petConfigStatus = '端末登録後にpetIdをCore2へ送信します';
+      } else {
+        petConfigStatus = 'Core2にpetId設定用のBLE特性がありません';
+      }
       await _values?.cancel();
       _values = characteristic.onValueReceived.listen((bytes) {
+        if (_petConfig?.receive(bytes) ?? false) return;
         final hex = bytes
             .map((b) => b.toRadixString(16).padLeft(2, '0'))
             .join(' ');
@@ -276,6 +328,11 @@ class Core2Ble extends ChangeNotifier {
   }
 
   void _resetVoice() {
+    _petConfig?.close();
+    _petConfig = null;
+    _syncedPetId = null;
+    _syncingPetId = false;
+    petConfigStatus = 'petIdはCore2へ未送信です';
     voiceCloud.sendReply = null;
     voiceCloud.cancelReply = null;
     final reply = _reply;
@@ -396,7 +453,7 @@ class Core2Ble extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    voiceCloud.removeListener(_refresh);
+    voiceCloud.removeListener(_onVoiceCloudChanged);
     voiceCloud.dispose();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());

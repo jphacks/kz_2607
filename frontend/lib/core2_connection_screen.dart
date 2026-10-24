@@ -353,6 +353,7 @@ class _Core2ConnectionPageState extends State<Core2ConnectionPage> {
               SelectableText('最新WAV（一時保存）: ${ble.audioPath}'),
             const SizedBox(height: 16),
             SelectableText(ble.voiceCloud.status),
+            SelectableText(ble.petConfigStatus),
             if (ble.voiceCloud.replyTransferStatus != null)
               SelectableText(ble.voiceCloud.replyTransferStatus!),
             const Divider(),
