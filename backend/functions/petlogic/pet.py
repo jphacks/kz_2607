@@ -1,6 +1,7 @@
 """ペット情報の取得(読むだけ)。ホーム画面の表示に使う。"""
 from .errors import ApiError
 from .appearance import appearance_of
+from .birth import birth_status_of, public_profile
 from .growth import stage_config, stage_of
 from .register import validate_device_id
 
@@ -36,4 +37,9 @@ def get_pet(db, uid, device_id):
         "personalityAxes": pet.get("personalityAxes", {}),
         "learnedWords": list(pet.get("learnedWords", [])),
         "createdAt": created.isoformat() if hasattr(created, "isoformat") else None,
+        "birthStatus": birth_status_of(pet),
+        "birthTrait": pet.get("birthTrait"),
+        "firstPerson": pet.get("firstPerson"),
+        "birthProfile": public_profile(pet.get("birthProfile")),
+        **({"baseType": pet["baseType"]} if pet.get("baseType") else {}),  # 種族(あれば、そのまま返す)
     }

@@ -37,7 +37,8 @@ def err(fn):
 def test_name_is_set_once_and_shown_everywhere():
     db, a, _ = setup()
     r = name(db, "u1", "devA", "  モチ ")
-    assert r == {"status": "ok", "petId": a, "name": "モチ", "alreadySet": False}
+    assert r == {"status": "ok", "petId": a, "name": "モチ", "firstPerson": None, "firstWords": None,
+                 "birthStatus": "born", "alreadySet": False, "alreadyBorn": False}
     assert get_pet(db, "u1", "devA")["name"] == "モチ"
     assert build_ai_payload("x", a, db.docs[("pets", a)], NOW)["petName"] == "モチ"
 

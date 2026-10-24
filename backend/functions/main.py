@@ -8,6 +8,7 @@ from firebase_functions.params import SecretParam
 
 from petlogic.adapters import google_stt, google_tts, http_ai
 from petlogic.birth import set_initial_personality
+from petlogic.birth_profile import AI_TIMEOUT_SEC, generate_birth_profile
 from petlogic.errors import ApiError
 from petlogic.exchange import cancel_exchange, get_exchange_result, report_exchange
 from petlogic.journey import finish_journeys, start_journeys
@@ -108,6 +109,15 @@ def setInitialPersonality(req: https_fn.CallableRequest):
     """誕生のときに、6問の回答から性格の初期値を決める(1回だけ)。入力: deviceId、answers、questionnaireVersion。"""
     uid = _require_uid(req)
     return _run(lambda: set_initial_personality(firestore.client(), uid, req.data, _now()))
+
+
+@https_fn.on_call(secrets=[OPENAI_API_KEY], timeout_sec=30)
+def generateBirthProfile(req: https_fn.CallableRequest):
+    """誕生プロフィール(名前の候補・紹介・一人称・最初のひとこと)をAIで作る。入力: petId、regenerate(任意)。"""
+    uid = _require_uid(req)
+    key, model = OPENAI_API_KEY.value, os.environ.get("OPENAI_MODEL")
+    ask = lambda system, user: openai_chat(system, user, key, model, json_mode=True, timeout=AI_TIMEOUT_SEC)  # noqa: E731
+    return _run(lambda: generate_birth_profile(firestore.client(), uid, req.data, _now(), ask))
 
 
 @https_fn.on_call()

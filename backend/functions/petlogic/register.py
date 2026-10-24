@@ -31,6 +31,7 @@ def new_pet(uid, now):
         "generationStartedAt": now,  # いまの代が始まった日時
         "createdAt": now,
         "name": None,
+        "birthStatus": "egg",  # 誕生の進み具合(egg → personality_set → profile_ready → born)
         "personalityAxes": {name: 0.5 for name in AXIS_NAMES},
         "learnedWords": [],
         "points": 0.0,

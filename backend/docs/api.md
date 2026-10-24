@@ -23,7 +23,7 @@
 | 項目 | 内容 |
 | --- | --- |
 | 送る | `deviceId` |
-| 返る | `deviceId`、`petId`、`name`(未設定は `null`)、`points`(会話の回数)、`gauge`(0〜1。会話10回で満タン)、`totalTalks`(会話の累計。交換しても引き継ぐ)、`stage`(`baby`/`child`/`adult`)、`stageIndex`(1〜3)、`nextStageAt`(次の段階になる累計回数。大人は `null`)、`talksToNextStage`(あと何回か。大人は `null`)、`generation`(世代)、`personalityAxes`(6軸・0〜1)、`learnedWords`(覚えた言葉)、`createdAt`(ISO形式の文字列) |
+| 返る | `deviceId`、`petId`、`name`(未設定は `null`)、`points`(会話の回数)、`gauge`(0〜1。会話10回で満タン)、`totalTalks`(会話の累計。交換しても引き継ぐ)、`stage`(`baby`/`child`/`adult`)、`stageIndex`(1〜3)、`nextStageAt`(次の段階になる累計回数。大人は `null`)、`talksToNextStage`(あと何回か。大人は `null`)、`generation`(世代)、`personalityAxes`(6軸・0〜1)、`learnedWords`(覚えた言葉)、`createdAt`(ISO形式の文字列)、`birthStatus`(誕生の進み具合。下の「誕生のながれ」)、`birthTrait`(誕生時にいちばん強い軸。AIの名前。未設定は `null`)、`firstPerson`(一人称。未設定は `null`)、`birthProfile`(誕生プロフィール。なければ `null`)、`baseType`(種族。あるときだけ) |
 
 - 飼い主のUIDなどは返さない。交換で端末のペットが変わっても、いまのペットを返す
 - ゲージは、会話するたびに進む(詳しくは下の「ゲージ」)
@@ -332,42 +332,103 @@ appearance: {
 - 「一番最初」は、`users/{uid}/createdPets` の作成日時が最も古いもの。同じなら、IDの小さいほう。
 - 手紙(`getLetters`・毎朝9時の配信)は、このペットだけが対象。
 
-## setInitialPersonality(誕生のときに性格の初期値を決める)
+## 誕生のながれ(birthStatus)
 
-6問4択の回答から、6軸の初期値を決める。**1体につき1回だけ**。決める値は、アプリの計算ではなく、回答からサーバーで計算する(アプリの値は表示用)。
+誕生の画面は、①→②→③の順に呼ぶ。進み具合は `pets/{petId}.birthStatus` が唯一の状態で、**`getPet` の `birthStatus` で読める**(アプリの開始・再開のたびに、これを見る)。
+
+| `birthStatus` | 意味 | 次にやること |
+|---|---|---|
+| `egg` | まだ性格を決めていない | ① `setInitialPersonality` |
+| `personality_set` | 性格を決めた | ② `generateBirthProfile` |
+| `profile_ready` | 誕生プロフィールができた | 名前を選んで ③ `setPetName` |
+| `born` | 生まれた | ホームへ |
+
+- 新しいペットは `egg` で始まる。
+- 状態の値がない昔のペットは、中身から決めて返す(勝手に `egg` とはしない): 名前がある・会話した・2代目以降・他人が作った → `born`。誕生プロフィールがある → `profile_ready`。回答がある → `personality_set`。どれもなければ `egg`。
+- 種族(`baseType`)は、誕生のながれでは決めない。あるときは、そのまま残して返す。
+
+`getPet`(引数: `deviceId` だけ)の返却例(誕生プロフィールができたあと):
+```json
+{"deviceId":"dev1","petId":"abc","name":null,"generation":1,"points":0,"gauge":0,"totalTalks":0,
+ "stage":"baby","stageIndex":1,"nextStageAt":30,"talksToNextStage":30,
+ "appearance":{"stage":"baby","primary":"logical","secondary":"curious","key":"logical_curious_baby","fallbackKey":"logical_baby"},
+ "personalityAxes":{"activity":0.2,"friendly":0.4,"talkative":0.6,"logical":0.8,"curious":0.8,"nightowl":0.2},
+ "learnedWords":[],"createdAt":"2026-10-25T05:00:00+00:00",
+ "birthStatus":"profile_ready","birthTrait":"logic","firstPerson":null,
+ "birthProfile":{"nameCandidates":["モチ","ポポ","ルル"],"description":"元気いっぱいで人なつっこい子。","firstPerson":"ぼく","speechNote":"元気な話し方。","firstWords":"はじめまして！あえて、うれしいよっ！","source":"ai"}}
+```
+
+## setInitialPersonality(① 誕生のときに性格の初期値を決める)
+
+6問4択の回答から、6軸の初期値を決める。**1体につき1回だけ**。決める値は、アプリの計算ではなく、回答からサーバーで計算する(アプリの値は使わない)。
 
 | 入力 | 内容 |
 |---|---|
 | `deviceId` | 端末ID |
-| `answers` | 0〜3の整数が6個。**軸の順**: `activity`, `friendly`, `talkative`, `logical`, `curious`, `nightowl`(軸の名前をキーにした辞書でもよい) |
-| `questionnaireVersion` | 質問のバージョン(1以上の整数) |
+| `answers` | 0〜3の整数が6個(選択肢の番号)。**この順**: `activity`, `friendly`, `talkative`, `logical`, `curious`, `nightowl`。軸の名前をキーにした辞書でもよい(このサーバーの名前でも、AIの名前 `active` / `affection` / `talkative` / `logic` / `curious` / `night` でも可) |
+| `questionnaireVersion` | 質問のバージョン。`"birth_v1_6q4"` のような文字列、または1以上の整数 |
+| `requestId` | (任意)アプリの依頼ID(UUIDなど。英数字と `-` `_` `.` `:`、64文字まで)。保存だけする |
 
 - 回答と値: 0 → 0.2、1 → 0.4、2 → 0.6、3 → 0.8
-- 返る: `{status: "ok", petId, personalityAxes, birthTrait, appearance, alreadySet}`
-  - `personalityAxes`: `{activity, friendly, talkative, logical, curious, nightowl}`(0〜1)
-  - `birthTrait`: いちばん強い軸。AIの名前(`active` / `affection` / `talkative` / `logic` / `curious` / `night`)。同じ値なら、`active → affection → talkative → logic → curious → night` の順
-  - `appearance`: 赤ちゃんの絵のキー。`{stage: "baby", primary, secondary, key, fallbackKey}`
-- 保存先(`pets/{petId}`): `personalityAxes`、`axesBase`(性格が動ける幅の基準。同じ値)、`birthAnswers`、`questionnaireVersion`、`birthTrait`
-- 送り直し: 同じ回答・同じバージョンなら、成功(`alreadySet: true`)。違うなら、エラー(`personality_already_set`)
+- 返却例:
+```json
+{"status":"ok","petId":"abc","alreadySet":false,"birthStatus":"personality_set","birthTrait":"logic",
+ "personalityAxes":{"activity":0.2,"friendly":0.4,"talkative":0.6,"logical":0.8,"curious":0.8,"nightowl":0.2},
+ "appearance":{"stage":"baby","primary":"logical","secondary":"curious","key":"logical_curious_baby","fallbackKey":"logical_baby"}}
+```
+  - `birthTrait`: いちばん強い軸(AIの名前)。同じ値なら、`active → affection → talkative → logic → curious → night` の順
+  - `personalityAxes` のキーは、このサーバーの名前(`activity` `friendly` `talkative` `logical` `curious` `nightowl`)
+- 保存先(`pets/{petId}`): `personalityAxes`、`axesBase`(性格が動ける幅の基準。同じ値)、`birthAnswers`、`questionnaireVersion`、`birthRequestId`、`birthTrait`、`birthStatus`
+- 送り直し: 同じ回答・同じバージョンなら、成功(`alreadySet: true`)。違うなら、エラー(`failed-precondition`、`reason: "personality_already_set"`)
 - できる人: そのペットを作った本人が、いまも持っていて、**交換前の1代目で、まだ話していない**ときだけ。それ以外は `personality_not_allowed`(作った人でないと `not_creator`)
-- 入力の誤り(個数・範囲・整数でない・バージョン)は `invalid-argument`(`invalid_answers` / `invalid_version`)
-- 性格の更新の基準は `axesBase` に統一(別の保存先は作らない)
+- 入力の誤りは `invalid-argument`(`invalid_answers` / `invalid_version` / `invalid_request_id`)
+- 性格の更新の基準は `axesBase` に統一(別の保存先は作らない)。種族(`baseType`)は触らない
 
-## setPetName(誕生のときに名前をつける)
+## generateBirthProfile(② 誕生プロフィールをAIで作る)
 
-誕生の画面で、ペットの名前を決めたあとに、**1回だけ**呼ぶ。つけた名前は、ずっと変わらない(交換しても、次の飼い主になっても同じ)。名前は、`getPet` の `name`、手紙、AIへの送信(`petName`)に使われる。
+性格を決めたあと、名前の候補・紹介・一人称・最初のひとことを、AIで作って保存する。性格は、サーバーが保存済みの値を読む(アプリからは送らない)。AIは最大12秒で打ち切り、失敗したら固定の文(`source: "template"`)で返す(誕生は止まらない)。
+
+| 入力 | 内容 |
+|---|---|
+| `petId` | ペットのID(`getPet` の `petId`) |
+| `regenerate` | (任意・既定 `false`)`true` なら作り直す。`profile_ready` のときだけ。初期性格は変わらない |
+
+返却例:
+```json
+{"status":"ok","petId":"abc","birthStatus":"profile_ready","regenerated":false,"source":"ai",
+ "nameCandidates":["モチ","ポポ","ルル"],"description":"元気いっぱいで人なつっこい子。",
+ "firstPerson":"ぼく","speechNote":"元気な話し方。","firstWords":"はじめまして！あえて、うれしいよっ！"}
+```
+- `firstPerson` は「ぼく」「わたし」「おれ」「うち」のどれか。
+- 保存先: `pets/{petId}.birthProfile`(`source` を含む)、`birthStatus` は `profile_ready` になる。
+- 保存済みで `regenerate: false` なら、AIを呼ばず、保存済みを返す(`regenerated: false`)。
+- エラー(`failed-precondition`): `personality_not_set`(先に①)、`already_born`(もう生まれている)、`birth_not_allowed`(1代目ではない)。`permission-denied`(`not_creator`): 作った本人ではない。`not-found`: ペットがない。
+
+## setPetName(③ 名前と一人称をつけて、生まれたことにする)
+
+誕生の画面で、名前を決めたあとに、**1回だけ**呼ぶ。つけた名前は、ずっと変わらない(交換しても、次の飼い主になっても同じ)。名前は、`getPet` の `name`、手紙、AIへの送信(`petName`)に使われる。成功すると `birthStatus` は `born` になる。
 
 | 入力 | 内容 |
 |---|---|
 | `deviceId` | 端末ID(自分の端末) |
-| `name` | 名前(前後の空白は取る。1〜12文字) |
+| `name` | 名前(前後の空白は取る。1〜12文字)。候補以外の自由入力でもよい |
+| `firstPerson` | (任意)「ぼく」「わたし」「おれ」「うち」。省略すると、誕生プロフィールの下書きの値を使う(なければ、つけない) |
 
-返る: `{ status: "ok", petId, name, alreadySet }`。`alreadySet` は、すでに同じ名前がついていたとき true(送り直しても大丈夫)。
+返却例:
+```json
+{"status":"ok","petId":"abc","name":"モチ","firstPerson":"ぼく","firstWords":"はじめまして！あえて、うれしいよっ！",
+ "birthStatus":"born","alreadySet":false,"alreadyBorn":false}
+```
+- `firstWords`: 誕生プロフィールの「最初のひとこと」(なければ `null`)。誕生の演出に使う。
+- 送り直し: 同じ名前なら成功(`alreadySet: true`、`alreadyBorn: true`)。応答が届かなかったときや、アプリの再起動後も、もう一度呼べばよい。
+- 一人称は、AIへの送信(`firstPerson`)にも使われる。
 
 エラー:
 - `invalid-argument`(`reason: "invalid_name"`): 空、13文字以上、改行などの制御文字、URL・連絡先・指示のような文字、数字4桁以上
+- `invalid-argument`(`reason: "invalid_first_person"`): 一人称が決まりの外
 - `failed-precondition`(`reason: "name_already_set"`): すでに違う名前がついている(`details.name` に、今の名前)
+- `failed-precondition`(`reason: "first_person_already_set"`): すでに違う一人称がついている
 - `permission-denied`(`reason: "not_creator"`): そのペットを作った人ではない(交換で受け取ったペットには、つけられない)
 - `permission-denied`: 自分の端末ではない / `not-found`: 端末が未登録
 
-名前をつける前は、`getPet` の `name` は `null`。誕生の画面で、`registerDevice` → `setPetName` の順に呼ぶ。
+名前をつける前は、`getPet` の `name` は `null`。誕生の画面は、`registerDevice` → ① → ② → ③ の順に呼ぶ。

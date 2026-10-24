@@ -46,6 +46,8 @@ def build_ai_payload(text, pet_id, pet, now, context=None, stage=None):
             payload[key] = context[key]
     if pet.get("name"):
         payload["petName"] = pet["name"]
+    if pet.get("firstPerson"):
+        payload["firstPerson"] = pet["firstPerson"]  # ペットの一人称(ぼく/わたし/おれ/うち)
     if stage:
         payload["stage"] = stage  # 姿の段階(baby / child / adult)
     axes = ai_axes(pet.get("personalityAxes"))

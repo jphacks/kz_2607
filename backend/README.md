@@ -32,3 +32,4 @@
 | 2026-10-25 | ペットの名前をつける `setPetName`(誕生のときに1回だけ・あとから変更不可・作った本人だけ)を新規実装。テスト185件 |
 | 2026-10-25 | ゲージ満タンの回数を config 化(既定10)、要約を既定5往復ごとに(config 化)。前の代の思い出 `pastMemories`(ぼかして最大10件)を追加。元の飼い主に戻ると昔の思い出を `memories` に。テスト192件 |
 | 2026-10-25 | `setInitialPersonality`(誕生のとき、6問の回答から性格の初期値を決める。1回だけ・同じ回答の再送は成功)を新規実装。`birthTrait` を保存。テスト197件 |
+| 2026-10-25 | 誕生のながれ: `birthStatus`(egg→personality_set→profile_ready→born)、`generateBirthProfile`(OpenAIで名前の候補・紹介・一人称・最初のひとこと。失敗時は固定の文)、`setPetName` に一人称と `alreadyBorn`、`setInitialPersonality` に文字列バージョンと `requestId`、`getPet` に誕生の項目を追加。テスト205件 |

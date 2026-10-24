@@ -11,6 +11,7 @@ from .register import validate_device_id
 from .store import run_in_transaction
 
 MAX_NAME_CHARS = 12
+FIRST_PERSONS = ("ぼく", "わたし", "おれ", "うち")
 
 
 def clean_name(raw):
@@ -29,14 +30,25 @@ def clean_name(raw):
 
 
 def set_pet_name(db, uid, data, run_tx=run_in_transaction):
-    """誕生のときに、名前をつける。入力: deviceId、name。
+    """誕生のときに、名前(と一人称)をつけて、生まれたことにする。入力: deviceId、name、firstPerson(任意)。
 
     つけられるのは、そのペットを作った本人が、そのペットを持っているときだけ。
-    もうつけてあるとき: 同じ名前なら、そのまま成功(送り直しOK)。違う名前なら、エラー。
+    firstPerson を省略すると、誕生プロフィールの下書きの値を使う(なければ、つけない)。
+    もうつけてあるとき: 同じ名前なら、そのまま成功(送り直しOK。alreadyBorn)。違う名前なら、エラー。
     """
     data = data or {}
     device_id = validate_device_id(data.get("deviceId"))
     name = clean_name(data.get("name"))
+    person = data.get("firstPerson")
+    if person is not None and person not in FIRST_PERSONS:
+        raise ApiError("invalid-argument", f"firstPerson は {list(FIRST_PERSONS)} のどれかにしてください",
+                       "invalid_first_person")
+
+    def result(pet_id, pet, already):
+        profile = pet.get("birthProfile") or {}
+        return {"petId": pet_id, "name": pet["name"], "firstPerson": pet.get("firstPerson"),
+                "firstWords": profile.get("firstWords"), "birthStatus": "born",
+                "alreadySet": already, "alreadyBorn": already}
 
     def work(tx):
         device = db.collection("devices").document(device_id).get(transaction=tx)
@@ -56,11 +68,18 @@ def set_pet_name(db, uid, data, run_tx=run_in_transaction):
                            "not_creator")
         current = pet.get("name")
         if current:
-            if current == name:
-                return {"petId": pet_id, "name": current, "alreadySet": True}
-            raise ApiError("failed-precondition", "名前は、誕生のときにつけたものから変えられません",
-                           "name_already_set", {"name": current})
-        tx.update(pet_ref, {"name": name})
-        return {"petId": pet_id, "name": name, "alreadySet": False}
+            if current != name:
+                raise ApiError("failed-precondition", "名前は、誕生のときにつけたものから変えられません",
+                               "name_already_set", {"name": current})
+            if person is not None and pet.get("firstPerson") not in (None, person):
+                raise ApiError("failed-precondition", "一人称は、誕生のときにつけたものから変えられません",
+                               "first_person_already_set", {"firstPerson": pet.get("firstPerson")})
+            return result(pet_id, pet, True)
+        chosen = person or (pet.get("birthProfile") or {}).get("firstPerson")
+        fields = {"name": name, "birthStatus": "born"}
+        if chosen:
+            fields["firstPerson"] = chosen
+        tx.update(pet_ref, fields)
+        return result(pet_id, {**pet, **fields}, False)
 
     return {"status": "ok", **run_tx(db, work)}
