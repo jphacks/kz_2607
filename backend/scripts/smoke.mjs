@@ -60,5 +60,40 @@ const otherToken = await signInAnonymously();
 const other = await call("registerDevice", otherToken, { deviceId });
 check("別ユーザーは拒否", other.body.error?.status === "PERMISSION_DENIED", other);
 
+// --- すれ違い交換 ---
+const tokenB = otherToken;
+const devA = "smokeA-" + Date.now();
+const devB = "smokeB-" + Date.now();
+const petA = (await call("registerDevice", token, { deviceId: devA })).body.result?.petId;
+const petB = (await call("registerDevice", tokenB, { deviceId: devB })).body.result?.petId;
+const tid = "tx-" + Date.now();
+const ex = { transactionId: tid, myDeviceId: devA, peerDeviceId: devB, givenPetId: petA, gotPetId: petB };
+
+const rep = await call("reportExchange", token, ex);
+check("reportExchange: 確定", rep.body.result?.status === "done" && rep.body.result?.receivedPetId === petB, rep);
+
+const rep2 = await call("reportExchange", token, ex);
+check("reportExchange: 再送は同じ結果", rep2.body.result?.replayed === true, rep2);
+
+const repB = await call("reportExchange", tokenB, {
+  transactionId: tid, myDeviceId: devB, peerDeviceId: devA, givenPetId: petB, gotPetId: petA,
+});
+check("reportExchange: 相手端末の報告は already_done", repB.body.result?.status === "already_done" && repB.body.result?.receivedPetId === petA, repB);
+
+const got = await call("getExchangeResult", tokenB, { transactionId: tid, myDeviceId: devB });
+check("getExchangeResult: 確定済み", got.body.result?.status === "confirmed" && got.body.result?.currentPetId === petA, got);
+
+const unk = await call("getExchangeResult", token, { transactionId: "none-" + Date.now(), myDeviceId: devA });
+check("getExchangeResult: 未知", unk.body.result?.status === "unknown", unk);
+
+const cc = await call("cancelExchange", token, { transactionId: tid, myDeviceId: devA, peerDeviceId: devB });
+check("cancelExchange: 確定後は取り消せない", cc.body.result?.status === "confirmed", cc);
+
+const tid2 = "tx2-" + Date.now();
+const c2 = await call("cancelExchange", token, { transactionId: tid2, myDeviceId: devA, peerDeviceId: devB });
+check("cancelExchange: 取り消し", c2.body.result?.status === "cancelled", c2);
+const after = await call("reportExchange", token, { ...ex, transactionId: tid2 });
+check("取り消し後の報告は拒否", after.body.error?.status === "FAILED_PRECONDITION", after);
+
 console.log(failed ? "\n失敗あり" : "\nすべて成功");
 process.exit(failed ? 1 : 0);

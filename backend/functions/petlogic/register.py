@@ -3,19 +3,15 @@ import re
 
 from google.api_core.exceptions import AlreadyExists
 
+from .errors import ApiError
+
 DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:\-]{1,64}$")
 
 # 性格の6つの軸。0.0〜1.0。生まれたときは、すべて中間の値。
 AXIS_NAMES = ("activity", "friendly", "talkative", "logical", "curious", "nightowl")
 
 
-class RegisterError(Exception):
-    """入力や権限の問題。codeは、関数側でHttpsErrorの種類に対応させる。"""
-
-    def __init__(self, code, message):
-        super().__init__(message)
-        self.code = code
-        self.message = message
+RegisterError = ApiError  # 以前の名前でも、使えるようにしておく
 
 
 def validate_device_id(device_id):
@@ -34,6 +30,7 @@ def new_pet(uid, now):
         "name": None,
         "personalityAxes": {name: 0.5 for name in AXIS_NAMES},
         "learnedWords": [],
+        "generation": 1,  # 手渡しされるたびに、1ずつ増える
     }
 
 
