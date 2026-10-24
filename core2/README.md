@@ -5,6 +5,19 @@ The Core2 advertises as `M5StackCore2` with service
 state. An Android receiver must subscribe to the voice data notification and
 configure the transfer before recording is enabled.
 
+## Nearby Core2 distance
+
+Each Core2 keeps advertising its service UUID while connected to Android and
+passively scans for other Core2 devices with the same UUID. The screen displays
+the strongest recent peer's BLE address, RSSI, and approximate distance. RSSI
+is smoothed and converted with a reference of -59 dBm at one meter and a path
+loss factor of 2. These values are starting estimates; walls, body position,
+antenna orientation, and the local environment can change the displayed
+distance substantially. The scan processes repeated advertisements as they
+arrive; a peer disappears after two seconds without one. Scanning pauses
+during recording, audio transfer, and
+reply playback to leave BLE airtime for audio.
+
 Hold button A to record. Releasing it, or reaching five seconds, ends the
 recording. Recordings shorter than 0.2 seconds are rejected. The microphone
 captures 16 kHz mono PCM16, and the Core2 compresses it to IMA ADPCM (four
