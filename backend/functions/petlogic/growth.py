@@ -7,7 +7,7 @@ import logging
 
 from .store import run_in_transaction
 
-TALKS_TO_FULL = 3  # 会話がこの回数で、ゲージが満タン
+TALKS_TO_FULL = 10  # 会話がこの回数で、ゲージが満タン
 
 
 def gauge_of(points):

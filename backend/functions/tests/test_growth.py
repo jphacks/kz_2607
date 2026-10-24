@@ -32,10 +32,12 @@ def swap(db, a, b):
                                       "gotPetId": b, "transactionId": "t1"}, NOW, run_tx=run_tx)
 
 
-def test_three_talks_fill_the_gauge():
+def test_ten_talks_fill_the_gauge():
     db, a, _ = setup()
-    assert talk_once(db, a)["gauge"] == pytest.approx(1 / 3)
-    assert talk_once(db, a)["gauge"] == pytest.approx(2 / 3)
+    assert talk_once(db, a)["gauge"] == pytest.approx(1 / 10)
+    assert talk_once(db, a)["gauge"] == pytest.approx(2 / 10)
+    for _ in range(7):
+        talk_once(db, a)
     assert talk_once(db, a)["gauge"] == 1.0
     assert talk_once(db, a)["gauge"] == 1.0  # 超えても1.0
     assert get_pet(db, "u1", "devA")["gauge"] == 1.0
