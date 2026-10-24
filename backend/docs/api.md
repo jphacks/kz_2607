@@ -17,6 +17,23 @@
 - `permission-denied`: その端末が、別のユーザーで登録済み
 - `unauthenticated`: ログインしていない
 
+## getPet
+自分の端末にいるペットの、表示用の情報を返す(読むだけ)。ホーム画面を開くたびに呼んでよい。
+
+| 項目 | 内容 |
+| --- | --- |
+| 送る | `deviceId` |
+| 返る | `deviceId`、`petId`、`name`(未設定は `null`)、`generation`(世代)、`personalityAxes`(6軸・0〜1)、`learnedWords`(覚えた言葉)、`createdAt`(ISO形式の文字列) |
+
+- 飼い主のUIDなどは返さない。交換で端末のペットが変わっても、いまのペットを返す
+- ゲージは、まだ返さない(成長記録を作ってから)
+
+エラー:
+- `invalid-argument`: `deviceId` の形が違う
+- `not-found`: 端末が未登録(先に `registerDevice`)
+- `permission-denied`: 自分の端末ではない
+- `unauthenticated`: ログインしていない
+
 ## ping
 動作確認用。`{ "ok": true }` を返す。
 
