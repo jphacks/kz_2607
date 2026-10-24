@@ -309,3 +309,20 @@ def test_nothing_learned_when_pet_changed_during_reply():
     f.ai = swapping_ai
     assert err(db, f).reason == "pet_changed"
     assert db.docs[("pets", pet)]["learnedWords"] == []
+
+
+# --- Core2向けの声 ---
+
+def test_reply_format_ima_adpcm():
+    db, _ = setup()
+    r = call(db, Fakes(), replyFormat="ima_adpcm")
+    info = r["replyAudio"]
+    assert info["format"] == "ima_adpcm" and info["sampleRate"] == 16000 and info["channels"] == 1
+    assert info["sampleCount"] == 8000 and info["durationSec"] == 0.5  # 24kHzの0.5秒 → 16kHz
+    assert len(base64.b64decode(r["replyAudioBase64"])) == 4000
+
+
+def test_reply_format_default_is_wav_and_bad_value_rejected():
+    db, _ = setup()
+    assert call(db, Fakes())["replyAudio"]["format"] == "wav"
+    assert err(db, Fakes(), replyFormat="mp3").code == "invalid-argument"

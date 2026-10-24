@@ -4,6 +4,7 @@ import logging
 from datetime import timedelta, timezone
 
 from .adapters import AiCallError
+from .audio_codec import CORE2_RATE, wav_to_core2_adpcm
 from .errors import ApiError
 from .learn import learn_words
 from .register import validate_device_id
@@ -11,6 +12,7 @@ from .store import run_in_transaction
 from .wav import describe_wav, parse_recording
 
 LANGUAGES = ("ja-JP", "en-US")
+REPLY_FORMATS = ("wav", "ima_adpcm")
 RATE_LIMIT_PER_MINUTE = 6
 MAX_REPLY_CHARS = 200
 JST = timezone(timedelta(hours=9))
@@ -77,6 +79,9 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
     want_audio = data.get("wantAudio", True)
     if not isinstance(want_audio, bool):
         raise ApiError("invalid-argument", "wantAudio は true か false にしてください")
+    reply_format = data.get("replyFormat") or "wav"
+    if reply_format not in REPLY_FORMATS:
+        raise ApiError("invalid-argument", "replyFormat は wav か ima_adpcm にしてください")
     claimed_pet = data.get("petId")
 
     device_ref = db.collection("devices").document(device_id)
@@ -136,8 +141,19 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
     else:
         try:
             wav = tts(reply)
-            result["replyAudioBase64"] = base64.b64encode(wav).decode("ascii")
-            result["replyAudio"] = describe_wav(wav)
+            if reply_format == "ima_adpcm":
+                adpcm, count = wav_to_core2_adpcm(wav)
+                result["replyAudioBase64"] = base64.b64encode(adpcm).decode("ascii")
+                result["replyAudio"] = {
+                    "format": "ima_adpcm",
+                    "sampleRate": CORE2_RATE,
+                    "channels": 1,
+                    "sampleCount": count,
+                    "durationSec": round(count / CORE2_RATE, 2),
+                }
+            else:
+                result["replyAudioBase64"] = base64.b64encode(wav).decode("ascii")
+                result["replyAudio"] = describe_wav(wav)
             result["audioStatus"] = "ok"
         except Exception as e:
             logging.error("音声合成に失敗しました: %s: %s", type(e).__name__, str(e)[:500].replace("\n", " "))
