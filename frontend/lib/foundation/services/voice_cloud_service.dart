@@ -1,0 +1,148 @@
+import 'dart:convert';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+import 'cloud_functions_service.dart';
+
+/// Explicitly binds uploads to the BLE connection the user has confirmed.
+class VoiceCloudService extends ChangeNotifier {
+  VoiceCloudService({CloudFunctionsService? api})
+    : _api = api ?? CloudFunctionsService();
+  final CloudFunctionsService _api;
+  String? _connection, deviceId, petId;
+  String status = '音声送信は無効です';
+  String? transcript, replyText;
+  Uint8List? replyAudio;
+  List<String> learnedWords = [];
+  bool _busy = false, _disposed = false;
+  int _epoch = 0;
+  bool get busy => _busy;
+  bool get enabled => deviceId != null && petId != null && _connection != null;
+  bool get connected => _connection != null;
+  String? get connectionDeviceId {
+    final address = _connection;
+    if (address == null ||
+        !RegExp(r'^(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$').hasMatch(address)) {
+      return null;
+    }
+    return address.replaceAll(':', '').toUpperCase();
+  }
+
+  void _publish() {
+    if (!_disposed) notifyListeners();
+  }
+
+  void setConnection(String? connection) {
+    if (_connection == connection) return;
+    _connection = connection;
+    disable();
+  }
+
+  void disable() {
+    _epoch++;
+    deviceId = petId = null;
+    transcript = replyText = null;
+    replyAudio = null;
+    learnedWords = [];
+    status = '音声送信は無効です。接続先とdeviceIdを確認して有効にしてください';
+    _publish();
+  }
+
+  Future<void> enable() async {
+    if (_busy || !connected || _disposed || enabled) return;
+    final id = connectionDeviceId;
+    if (id == null) {
+      status = '接続先のBLE MACを取得できないため、端末登録は行いません';
+      _publish();
+      return;
+    }
+    final epoch = _epoch;
+    _busy = true;
+    status = 'registerDevice：端末を登録・確認中…';
+    _publish();
+    try {
+      final pet = await _api.registerDevice(id.trim());
+      if (_disposed || epoch != _epoch) return;
+      deviceId = id.trim();
+      petId = pet;
+      status = '音声送信を有効にしました。次の録音から自動送信します';
+    } catch (e) {
+      if (!_disposed && epoch == _epoch) {
+        status = _error('registerDevice', e, attemptedId: id.trim());
+      }
+    } finally {
+      _busy = false;
+      _publish();
+    }
+  }
+
+  Future<void> sendPcm(Uint8List pcm) async {
+    // Never queue recordings made before confirmation, or during another call.
+    if (!enabled || _busy || _disposed) return;
+    final epoch = _epoch;
+    final id = deviceId!, pet = petId!;
+    _busy = true;
+    transcript = replyText = null;
+    replyAudio = null;
+    learnedWords = [];
+    status = 'talkToPet：音声送信・返答待ち…（送信中の新しい録音は送信しません）';
+    _publish();
+    try {
+      final result = await _api.talkToPet(deviceId: id, petId: pet, pcm: pcm);
+      if (_disposed || epoch != _epoch) return;
+      transcript = result['transcript'] as String;
+      replyText = result['replyText'] as String;
+      final words = result['learnedWords'];
+      if (words is List) learnedWords = words.whereType<String>().toList();
+      if (result['status'] == 'no_speech') {
+        status = '声を聞き取れませんでした。Core2で録音し直してください';
+      } else if (result['audioStatus'] == 'ok') {
+        final audio = result['replyAudioBase64'];
+        if (audio is! String || audio.isEmpty) {
+          throw const FormatException('返答音声がありません');
+        }
+        replyAudio = base64Decode(audio);
+        if (replyAudio!.isEmpty) throw const FormatException('返答音声が空です');
+        status = '返答文と音声を受信しました（Core2への返答音声転送は未実装）';
+      } else {
+        status = result['audioStatus'] == 'failed'
+            ? '返答文を受信しました。返答音声の生成には失敗しました'
+            : '返答文を受信しました（返答音声なし）';
+      }
+    } catch (e) {
+      if (_disposed || epoch != _epoch) return;
+      if (e is FirebaseFunctionsException &&
+          e.details is Map &&
+          (e.details as Map)['reason'] == 'pet_changed') {
+        disable();
+        status = '${_error('talkToPet', e)}\nペットが変わったため会話を破棄しました。端末を再登録してください';
+      } else {
+        status = _error('talkToPet', e);
+      }
+      // No automatic retry: an ambiguous failure could duplicate a conversation.
+    } finally {
+      _busy = false;
+      _publish();
+    }
+  }
+
+  String _error(String function, Object error, {String? attemptedId}) {
+    if (error is FirebaseFunctionsException) {
+      final details = error.details;
+      final reason = details is Map ? details['reason'] : null;
+      final retry = details is Map ? details['retryAfterSec'] : null;
+      return '$function 失敗 / deviceId: ${attemptedId ?? deviceId ?? "登録前"}\ncode: ${error.code}\nreason: ${reason ?? "なし"}${retry == null ? "" : "\n$retry秒後に録音し直してください"}';
+    }
+    if (error is FirebaseAuthException) {
+      return '$function 認証失敗\ncode: ${error.code}';
+    }
+    return '$function 失敗: $error';
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _epoch++;
+    super.dispose();
+  }
+}

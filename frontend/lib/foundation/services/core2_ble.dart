@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'voice_link.dart';
+import 'voice_cloud_service.dart';
 import 'voice_transfer.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -12,6 +13,7 @@ class Core2Ble extends ChangeNotifier {
   static final statusId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000002');
   static final voiceDataId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000005');
   static final voiceControlId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000006');
+  final voiceCloud = VoiceCloudService();
   VoiceLink? _voice;
   BluetoothCharacteristic? _voiceData, _voiceControl;
   bool voiceStarting = false;
@@ -37,6 +39,7 @@ class Core2Ble extends ChangeNotifier {
   String status = '未接続';
 
   Core2Ble() {
+    voiceCloud.addListener(_refresh);
     _subscriptions.add(
       FlutterBluePlus.onScanResults.listen((results) {
         for (final result in results) {
@@ -65,6 +68,7 @@ class Core2Ble extends ChangeNotifier {
         if (state == BluetoothAdapterState.off) {
           ready = false;
           status = 'Bluetoothを有効にしてください';
+          voiceCloud.setConnection(null);
           _refresh();
         }
       }),
@@ -174,6 +178,7 @@ class Core2Ble extends ChangeNotifier {
       if (_disposed || device != target) throw StateError('初期化中に切断されました');
       ready = true;
       status = '接続済み・受信待ち';
+      voiceCloud.setConnection(target.remoteId.str);
       _log('Notify購読開始');
       if (canReceiveVoice) {
         // Match the prototype: subscribe to voice automatically after BLE setup.
@@ -193,6 +198,7 @@ class Core2Ble extends ChangeNotifier {
   }
 
   void _resetVoice() {
+    if (!_disposed) voiceCloud.setConnection(null);
     final previous = _voice;
     _voice = null;
     unawaited(previous?.close());
@@ -228,6 +234,9 @@ class Core2Ble extends ChangeNotifier {
         _refresh();
       },
       onAudio: (pcm) {
+        if (!current()) return;
+        // Send this recording's bytes directly, never a possibly overwritten file.
+        unawaited(voiceCloud.sendPcm(pcm));
         // Serialize saves so a newer recording cannot be overwritten by an older one.
         _saveQueue = _saveQueue.then((_) => _saveVoice(pcm, generation));
       },
@@ -292,6 +301,8 @@ class Core2Ble extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    voiceCloud.removeListener(_refresh);
+    voiceCloud.dispose();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
