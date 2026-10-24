@@ -84,7 +84,11 @@ class StepProgressSync {
     for (final day in pending) {
       final value = state.days[day]!;
       final steps = value.steps;
-      await _api.recordProgress(deviceId: deviceId, date: day, steps: steps);
+      try {
+        await _api.recordProgress(deviceId: deviceId, date: day, steps: steps);
+      } catch (error) {
+        throw StateError('recordProgress(date=$day, steps=$steps): $error');
+      }
       value.synced = steps;
       await _save(prefs, key, state);
     }
