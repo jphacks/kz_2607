@@ -326,3 +326,12 @@ def test_reply_format_default_is_wav_and_bad_value_rejected():
     db, _ = setup()
     assert call(db, Fakes())["replyAudio"]["format"] == "wav"
     assert err(db, Fakes(), replyFormat="mp3").code == "invalid-argument"
+
+
+def test_talk_advances_gauge_and_no_speech_does_not():
+    db, pet = setup()
+    assert call(db, Fakes(transcript=""))["status"] == "no_speech"
+    assert db.docs[("pets", pet)].get("points", 0.0) == 0.0
+    r = call(db, Fakes())
+    assert r["gauge"] == pytest.approx(1 / 3)
+    assert call(db, Fakes())["gauge"] == pytest.approx(2 / 3)
