@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "prod": "pet-handoff-hack",
+    "default": "pet-handoff-hack"
+  }
+}
