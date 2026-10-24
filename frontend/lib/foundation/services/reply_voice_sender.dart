@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
-/// Reference Core2 protocol: START / four-frame DATA windows / END, cumulative ACK.
+/// Core2 protocol: START / bounded DATA windows / END, cumulative ACK.
 /// Transport is injected so loss, retries and disconnects can be tested without BLE.
 class ReplyVoiceSender {
+  static const int _dataWindow = 8;
+  static const int _progressIntervalUs = 100000;
+
   ReplyVoiceSender({
     required this.write,
     required Stream<List<int>> acknowledgements,
@@ -122,6 +125,7 @@ class ReplyVoiceSender {
     _sequences.clear();
     _ackWait.reset();
     final clock = Stopwatch()..start();
+    var lastProgressUs = 0;
     int? startAckUs, dataUs, endAckUs;
     var success = false;
     try {
@@ -140,8 +144,8 @@ class ReplyVoiceSender {
         ], false),
       );
       startAckUs = clock.elapsedMicroseconds;
-      for (var first = 1; first <= packets; first += 4) {
-        final last = min(first + 3, packets);
+      for (var first = 1; first <= packets; first += _dataWindow) {
+        final last = min(first + _dataWindow - 1, packets);
         await _untilAck(last, () async {
           for (var sequence = first; sequence <= last; sequence++) {
             _check();
@@ -158,7 +162,11 @@ class ReplyVoiceSender {
             ], true);
           }
         });
-        onProgress?.call(min(last * chunkSize, bytes.length), bytes.length);
+        final nowUs = clock.elapsedMicroseconds;
+        if (last == packets || nowUs - lastProgressUs >= _progressIntervalUs) {
+          onProgress?.call(min(last * chunkSize, bytes.length), bytes.length);
+          lastProgressUs = nowUs;
+        }
       }
       dataUs = clock.elapsedMicroseconds - startAckUs;
       final endStartUs = clock.elapsedMicroseconds;
@@ -191,7 +199,7 @@ class ReplyVoiceSender {
         'retransmitRate': _writes == 0 ? 0.0 : _resent / _writes,
         'retries': retryCount,
         'ackTimeouts': _timeouts,
-        'ackWindow': 4,
+        'ackWindow': _dataWindow,
         'cloudToStartAckUs': startAckUs == null
             ? null
             : cloudToSendUs + startAckUs,

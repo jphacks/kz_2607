@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'voice_link.dart';
 import 'voice_cloud_service.dart';
 import 'reply_voice_sender.dart';
@@ -327,6 +328,13 @@ class Core2Ble extends ChangeNotifier {
           _log('切断');
         }
       });
+      if (Platform.isAndroid && target.mtuNow < 247) {
+        try {
+          await target.requestMtu(247);
+        } catch (error) {
+          _log('BLE MTUを拡張できません: $error');
+        }
+      }
       final services = await target.discoverServices();
       BluetoothCharacteristic? characteristic, command, replyData, replyAck;
       for (final service in services) {
@@ -493,6 +501,47 @@ class Core2Ble extends ChangeNotifier {
     voiceStatus = '音声受信は未開始';
   }
 
+  Future<void> _sendPcmWithPriority(
+    Uint8List pcm,
+    BluetoothDevice target,
+    int generation,
+  ) async {
+    var highPrioritySet = false;
+    Future<void> priorityRequest = Future.value();
+    if (Platform.isAndroid) {
+      // Negotiate while the cloud request runs, so the downlink starts ready.
+      priorityRequest = target
+          .requestConnectionPriority(
+            connectionPriorityRequest: ConnectionPriority.high,
+          )
+          .then<void>((_) {
+            highPrioritySet = true;
+          })
+          .catchError((Object error) {
+            if (!_disposed && generation == _audioGeneration && device == target) {
+              _log('BLE接続優先度を変更できません: $error');
+            }
+          });
+    }
+    try {
+      await voiceCloud.sendPcm(pcm);
+    } finally {
+      await priorityRequest;
+      if (highPrioritySet && !_disposed && generation == _audioGeneration &&
+          device == target) {
+        try {
+          await target.requestConnectionPriority(
+            connectionPriorityRequest: ConnectionPriority.balanced,
+          );
+        } catch (error) {
+          if (!_disposed && generation == _audioGeneration && device == target) {
+            _log('BLE接続優先度を戻せません: $error');
+          }
+        }
+      }
+    }
+  }
+
   Future<void> startVoice() async {
     if (!canReceiveVoice || voiceStarting || voiceListening) return;
     voiceStarting = true;
@@ -528,9 +577,11 @@ class Core2Ble extends ChangeNotifier {
         if (!current()) return;
         if (voiceCloud.enabled && !voiceCloud.busy) {
           _replyConversationId = _conversationId;
+          // Send this recording's bytes directly, never a possibly overwritten file.
+          unawaited(_sendPcmWithPriority(pcm, target, generation));
+        } else {
+          unawaited(voiceCloud.sendPcm(pcm));
         }
-        // Send this recording's bytes directly, never a possibly overwritten file.
-        unawaited(voiceCloud.sendPcm(pcm));
         // Serialize saves so a newer recording cannot be overwritten by an older one.
         _saveQueue = _saveQueue.then((_) => _saveVoice(pcm, generation));
       },
