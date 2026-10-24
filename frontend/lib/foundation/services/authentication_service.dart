@@ -26,7 +26,10 @@ class AuthenticationService {
 
   Future<AccountSession?> restore() async {
     await _prepare();
-    return _session(_auth().currentUser);
+    final auth = _auth();
+    final user = auth.currentUser ?? (await auth.signInAnonymously()).user;
+    if (user == null) throw StateError('Firebaseにログインできませんでした');
+    return _session(user);
   }
 
   Future<AccountSession> login(String email, String password) async {
@@ -41,16 +44,33 @@ class AuthenticationService {
   Future<AccountSession> register(String email, String password) async {
     await _prepare();
     final auth = _auth();
-    final current = auth.currentUser;
+    final current = auth.currentUser ?? (await auth.signInAnonymously()).user;
+    if (current == null || !current.isAnonymous) {
+      throw FirebaseAuthException(code: 'provider-already-linked');
+    }
     // Linking preserves ownership of devices already registered anonymously.
-    final result = current?.isAnonymous == true
-        ? await current!.linkWithCredential(
-            EmailAuthProvider.credential(email: email, password: password),
-          )
-        : await auth.createUserWithEmailAndPassword(
-            email: email,
-            password: password,
-          );
+    late final UserCredential result;
+    try {
+      result = await current.linkWithCredential(
+        EmailAuthProvider.credential(email: email, password: password),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code != 'email-already-in-use' &&
+          e.code != 'credential-already-in-use') {
+        rethrow;
+      }
+      // An existing email account has a different UID. Never transfer ownership
+      // or delete the anonymous user to hide a subsequent permission-denied.
+      return _session(
+        (await auth.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        )).user,
+      )!;
+    }
+    // Refresh before Callable requests so their token includes the linked email.
+    // A refresh failure must not trigger login with a different account.
+    await result.user!.getIdToken(true);
     return _session(result.user)!;
   }
 
@@ -91,6 +111,7 @@ String authenticationError(Object error) {
       'user-not-found' => 'メールアドレスとパスワードを確認してください。',
       'email-already-in-use' ||
       'credential-already-in-use' => 'このメールアドレスは登録済みです。ログインしてください。',
+      'provider-already-linked' => 'すでにメールアドレスでログインしています。ログイン画面に戻ってください。',
       'weak-password' => 'パスワードが登録条件を満たしていません。別のパスワードをお試しください。',
       'network-request-failed' => '通信できません。接続を確認して、もう一度お試しください。',
       'too-many-requests' => '操作が集中しています。しばらく待ってからお試しください。',

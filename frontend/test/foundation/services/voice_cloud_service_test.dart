@@ -36,6 +36,27 @@ CloudFunctionsService api(
 
 void main() {
   test(
+    'permission-denied keeps diagnostic code and explains account ownership',
+    () async {
+      final cloud = VoiceCloudService(
+        api: api((_, _, _) async {
+          throw FirebaseFunctionsException(
+            code: 'permission-denied',
+            message: 'denied',
+            details: {'reason': 'not_owner'},
+          );
+        }),
+      );
+      cloud.setConnection('AA:BB:CC:DD:EE:01');
+      await cloud.enable();
+      expect(cloud.enabled, false);
+      expect(cloud.status, contains('code: permission-denied'));
+      expect(cloud.status, contains('reason: not_owner'));
+      expect(cloud.status, contains('端末を登録したアカウント'));
+      cloud.dispose();
+    },
+  );
+  test(
     'talk sends a real WAV as Base64 with device, pet and long callable timeout',
     () async {
       final service = api((name, data, timeout) async {
