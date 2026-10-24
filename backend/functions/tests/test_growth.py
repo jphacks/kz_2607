@@ -9,15 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fakes import FakeDb, run_tx  # noqa: E402
 from petlogic.errors import ApiError  # noqa: E402
 from petlogic.exchange import report_exchange  # noqa: E402
-from petlogic.growth import record_progress  # noqa: E402
+from petlogic.growth import add_talk, gauge_of  # noqa: E402
 from petlogic.pet import get_pet  # noqa: E402
 from petlogic.register import register_device  # noqa: E402
 
 NOW = datetime(2026, 10, 24, tzinfo=timezone.utc)
-
-
-def rec(db, uid="u1", dev="devA", **data):
-    return record_progress(db, uid, {"deviceId": dev, **data}, NOW, run_tx=run_tx)
 
 
 def setup():
@@ -27,60 +23,50 @@ def setup():
     return db, a, b
 
 
+def talk_once(db, a, uid="u1", dev="devA"):
+    return add_talk(db, uid, dev, a, NOW, run_tx)
+
+
 def swap(db, a, b):
     return report_exchange(db, "u1", {"myDeviceId": "devA", "peerDeviceId": "devB", "givenPetId": a,
                                       "gotPetId": b, "transactionId": "t1"}, NOW, run_tx=run_tx)
 
 
-def test_points_and_gauge():
+def test_three_talks_fill_the_gauge():
     db, a, _ = setup()
-    r = rec(db, nTalk=2, steps=3000, nMeet=1)  # 2 + 3 + 3 = 8
-    assert r["status"] == "recorded" and r["points"] == 8.0
-    assert r["gauge"] == pytest.approx(8 / 120)
-    assert get_pet(db, "u1", "devA")["gauge"] == pytest.approx(8 / 120)
+    assert talk_once(db, a)["gauge"] == pytest.approx(1 / 3)
+    assert talk_once(db, a)["gauge"] == pytest.approx(2 / 3)
+    assert talk_once(db, a)["gauge"] == 1.0
+    assert talk_once(db, a)["gauge"] == 1.0  # 超えても1.0
+    assert get_pet(db, "u1", "devA")["gauge"] == 1.0
 
 
-def test_gauge_caps_at_one():
-    db, _, _ = setup()
-    for i in range(3):
-        r = rec(db, steps=100_000, eventKey=f"k{i}")
-    assert r["gauge"] == 1.0
+def test_gauge_of_bounds():
+    assert gauge_of(0) == 0 and gauge_of(99) == 1.0 and gauge_of(-5) == 0
 
 
-def test_same_event_key_is_not_added_twice():
-    db, _, _ = setup()
-    rec(db, nTalk=5, eventKey="e1")
-    r = rec(db, nTalk=5, eventKey="e1")
-    assert r["status"] == "already_recorded" and r["points"] == 5.0
+def test_not_owner_or_changed_pet_is_ignored():
+    db, a, b = setup()
+    assert talk_once(db, a, uid="u2") is None
+    assert add_talk(db, "u1", "devA", b, NOW, run_tx) is None  # 端末のペットではない
+    assert add_talk(db, "u1", "none", a, NOW, run_tx) is None
+    assert db.docs[("pets", a)]["points"] == 0.0
 
 
-def test_limits_per_call():
-    db, _, _ = setup()
-    assert rec(db, nTalk=9999)["points"] == 100.0
+def test_failure_does_not_raise():
+    class Boom(FakeDb):
+        pass
 
+    def bad_tx(db, fn):
+        raise RuntimeError("down")
 
-@pytest.mark.parametrize("data", [{}, {"nTalk": -1}, {"steps": "x"}, {"nTalk": True},
-                                  {"nTalk": 1, "eventKey": "a/b"}, {"nTalk": 1, "eventKey": ""}])
-def test_invalid_arguments(data):
-    db, _, _ = setup()
-    with pytest.raises(ApiError) as e:
-        rec(db, **data)
-    assert e.value.code == "invalid-argument"
-
-
-def test_not_owner_and_unregistered():
-    db, _, _ = setup()
-    with pytest.raises(ApiError) as e:
-        rec(db, uid="u2", nTalk=1)
-    assert e.value.code == "permission-denied"
-    with pytest.raises(ApiError) as e:
-        rec(db, dev="none", nTalk=1)
-    assert e.value.code == "not-found"
+    db, a, _ = setup()
+    assert add_talk(db, "u1", "devA", a, NOW, bad_tx) is None
 
 
 def test_exchange_resets_gauge():
     db, a, b = setup()
-    rec(db, nTalk=50)
+    talk_once(db, a)
     swap(db, a, b)
     assert db.docs[("pets", a)]["gauge"] == 0.0 and db.docs[("pets", a)]["points"] == 0.0
 

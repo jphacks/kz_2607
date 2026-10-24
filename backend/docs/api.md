@@ -23,31 +23,16 @@
 | 項目 | 内容 |
 | --- | --- |
 | 送る | `deviceId` |
-| 返る | `deviceId`、`petId`、`name`(未設定は `null`)、`points`、`gauge`、`generation`(世代)、`personalityAxes`(6軸・0〜1)、`learnedWords`(覚えた言葉)、`createdAt`(ISO形式の文字列) |
+| 返る | `deviceId`、`petId`、`name`(未設定は `null`)、`points`(会話の回数)、`gauge`(0〜1。会話3回で満タン)、`generation`(世代)、`personalityAxes`(6軸・0〜1)、`learnedWords`(覚えた言葉)、`createdAt`(ISO形式の文字列) |
 
 - 飼い主のUIDなどは返さない。交換で端末のペットが変わっても、いまのペットを返す
-- `points`(貯めたポイント)と `gauge`(0〜1)も返す。ポイントは `recordProgress` で貯まる
+- ゲージは、会話するたびに進む(詳しくは下の「ゲージ」)
 
 エラー:
 - `invalid-argument`: `deviceId` の形が違う
 - `not-found`: 端末が未登録(先に `registerDevice`)
 - `permission-denied`: 自分の端末ではない
 - `unauthenticated`: ログインしていない
-
-## recordProgress
-会話・歩数・すれ違いを記録して、ペットのゲージを進める。呼べるのは、その端末の持ち主だけ。
-
-| 項目 | 内容 |
-| --- | --- |
-| 送る | `deviceId`、`nTalk`(会話の回数)、`steps`(歩数)、`nMeet`(すれ違いの回数)、`eventKey`(任意) |
-| 返る | `status`(`recorded` / `already_recorded`)、`petId`、`points`、`gauge` |
-
-- `nTalk`・`steps`・`nMeet` は、どれか1つ以上が必要(0以上の数)。1回の上限は 100回・10万歩・50回
-- ポイント: 会話1回=1、1000歩=1、すれ違い1回=3。**120ポイントでゲージが満タン(1.0)**
-- `eventKey` を付けると、同じ値の再送は足さない(`already_recorded`)。通信が切れて再送するときは、同じ値を使う
-- 交換が確定すると、2匹のポイントとゲージは0に戻る(新しい飼い主のもとで、貯め直す)
-
-エラー: `invalid-argument`(数の形が違う、全部0)、`not-found`(端末が未登録)、`permission-denied`(自分の端末ではない)、`unauthenticated`
 
 ## ping
 動作確認用。`{ "ok": true }` を返す。
@@ -109,6 +94,12 @@
 3. `done` か `already_done` なら、Core2を確定する
 4. 交換が成立しないエラーなら、Core2を元に戻す。あわせて `cancelExchange` を呼ぶと、以後その `transactionId` では確定しなくなる
 5. 結果が分からないとき(通信切れなど)は、同じ内容で再送する。それでも分からなければ `getExchangeResult` で確認する。`unknown` なら `cancelExchange` を呼び、`cancelled` を確認してから戻す
+
+## ゲージ
+- ペットとの会話(`talkToPet` が成功したとき)が、1回ごとに、ゲージを進める。**3回で満タン(1.0)**。アプリから何かを送る必要はない
+- 声が聞き取れなかったとき(`no_speech`)は、数えない
+- `talkToPet` の戻り値に `gauge` が入る。`getPet` でも読める
+- 交換が確定すると、2匹のゲージは0に戻る(新しい飼い主のもとで、貯め直す)
 
 ## ゲージの条件(サーバーの設定)
 Firestore の `config/game` の `requireFullGauge` を `true` にすると、ゲージが満タン(1.0)でない2匹の交換を、`failed-precondition`(`reason: "pet_not_ready"`、`details.petIds` に満タンでないペット)で断る。**既定はオフ**(設定がなければ、ゲージに関係なく交換できる)。切り替えに再デプロイは要らない。
