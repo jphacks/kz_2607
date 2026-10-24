@@ -4,6 +4,7 @@
 
 #include "voice_recorder.h"
 #include "voice_transfer.h"
+#include "reply_receiver.h"
 
 namespace {
 
@@ -58,6 +59,10 @@ void drawScreen() {
   M5.Display.setCursor(16, 190);
   if (voiceRecording()) {
     M5.Display.printf("Recording: %.1f / 5.0 s", voiceDurationSeconds());
+  } else if (replyReceiverReceiving()) {
+    M5.Display.printf("Receiving reply: %u%%", replyReceiverProgressPercent());
+  } else if (voicePlayingReply()) {
+    M5.Display.print("Playing reply...");
   } else if (connected && !voiceTransferConfigured()) {
     M5.Display.print("Open Android voice receiver");
   } else {
@@ -83,6 +88,7 @@ void startBle() {
       kStatusUuid, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
   status->setValue(statusJson().c_str());
   voiceTransferBegin(service);
+  replyReceiverBegin(service);
   server->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
@@ -103,23 +109,30 @@ void setup() {
 
 void loop() {
   M5.update();
-  voiceUpdate(connected && voiceTransferConfigured());
+  voiceUpdate(connected && voiceTransferConfigured() && !replyReceiverBusy());
   voiceTransferUpdate(connected);
+  replyReceiverUpdate(connected);
   static uint32_t lastVoiceRevision = 0;
+  static uint32_t lastReplyRevision = 0;
   static unsigned long lastDraw = 0;
   if (connectionChanged) {
     connectionChanged = false;
     if (!connected) {
       voiceTransferReset();
       voiceCancel("Disconnected");
+      replyReceiverReset();
     }
     drawScreen();
     lastVoiceRevision = voiceRevision();
+    lastReplyRevision = replyReceiverRevision();
     lastDraw = millis();
-  } else if (voiceRevision() != lastVoiceRevision &&
-             (!voiceRecording() || millis() - lastDraw >= 200)) {
+  } else if ((voiceRevision() != lastVoiceRevision ||
+              replyReceiverRevision() != lastReplyRevision) &&
+             ((!voiceRecording() && !replyReceiverReceiving()) ||
+              millis() - lastDraw >= 200)) {
     drawScreen();
     lastVoiceRevision = voiceRevision();
+    lastReplyRevision = replyReceiverRevision();
     lastDraw = millis();
   }
   delay(2);

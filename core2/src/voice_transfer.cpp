@@ -122,6 +122,7 @@ void voiceTransferReset() {
 void voiceTransferClearConfiguration() { chunkSize = 0; }
 
 bool voiceTransferConfigured() { return chunkSize != 0; }
+bool voiceTransferSending() { return sending; }
 
 void voiceTransferUpdate(bool connected) {
   if (!connected || chunkSize == 0) {
