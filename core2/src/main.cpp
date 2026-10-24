@@ -138,11 +138,17 @@ void drawPlayCharacter() {
   M5.Display.drawLine(191, 137, 216, 140, face);
 }
 
+void drawPlayRecordingIndicator() {
+  M5.Display.fillRect(0, M5.Display.height() - 5, M5.Display.width(), 5,
+                      voiceRecording() ? TFT_RED : TFT_BLACK);
+}
+
 void drawScreen() {
   if (playMode) {
     M5.Display.fillScreen(TFT_BLACK);
     drawPlayCharacter();
     drawModeButton();
+    drawPlayRecordingIndicator();
     return;
   }
   M5.Display.fillScreen(TFT_NAVY);
@@ -294,6 +300,7 @@ void loop() {
   static unsigned long lastStatusRefresh = 0;
   static unsigned long lastStepStatusRefresh = 0;
   static unsigned long lastDraw = 0;
+  static bool lastPlayRecording = false;
   const uint32_t steps = stepCounterCount();
   stepCounterUpdate(!audioBusy);
   if (petConfigRevision() != lastPetNotifyRevision) {
@@ -348,5 +355,9 @@ void loop() {
     lastDrawStepCount = steps;
     lastDraw = millis();
   }
+  if (playMode && voiceRecording() != lastPlayRecording) {
+    drawPlayRecordingIndicator();
+  }
+  lastPlayRecording = voiceRecording();
   delay(2);
 }
