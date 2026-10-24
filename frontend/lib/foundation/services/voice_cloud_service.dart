@@ -202,6 +202,12 @@ class VoiceCloudService extends ChangeNotifier {
       final details = error.details;
       final reason = details is Map ? details['reason'] : null;
       final retry = details is Map ? details['retryAfterSec'] : null;
+      if (error.code == 'permission-denied') {
+        return '$function 失敗 / deviceId: ${attemptedId ?? deviceId ?? "登録前"}\n'
+            'code: ${error.code}\nreason: ${reason ?? "なし"}\n'
+            'この端末は現在のアカウントでは利用できません。'
+            'ログイン先を変更した場合は、端末を登録したアカウントか確認してください。';
+      }
       return '$function 失敗 / deviceId: ${attemptedId ?? deviceId ?? "登録前"}\ncode: ${error.code}\nreason: ${reason ?? "なし"}${retry == null ? "" : "\n$retry秒後に録音し直してください"}';
     }
     if (error is FirebaseAuthException) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kz_2607/main.dart';
+import 'package:kz_2607/home_screen.dart';
 import 'package:kz_2607/designsystem/journey_gauge.dart';
 
 Future<void> loadHomeFont() async {
@@ -28,7 +29,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(home: HomeScreen()));
     await tester.pumpAndSettle();
     expect(find.text('いま、一緒にいる子'), findsOneWidget);
     expect(find.text('ポポ'), findsOneWidget);
@@ -40,7 +41,7 @@ void main() {
   testWidgets('navigation opens and closes the corresponding information', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(home: HomeScreen()));
     for (final entry in {
       '見守る': '旅立ったペットの見守り画面は準備中です。',
       '手紙': '届いた手紙を読む画面は準備中です。',
@@ -63,7 +64,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       tester.platformDispatcher.textScaleFactorTestValue = 2;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      await tester.pumpWidget(const MyApp());
+      await tester.pumpWidget(const MyApp(home: HomeScreen()));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('確定した交換結果を見る'),

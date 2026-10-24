@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kz_2607/main.dart';
+import 'package:kz_2607/home_screen.dart';
 import 'package:kz_2607/journey_screen.dart';
 import 'home_screen_test.dart' show loadHomeFont;
 
@@ -9,7 +10,7 @@ void main() {
   testWidgets('journey opens from home and returns without duplicating home', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(home: HomeScreen()));
     await tester.tap(find.text('旅'));
     await tester.pumpAndSettle();
     expect(find.text('ポポの旅'), findsOneWidget);
@@ -36,7 +37,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     tester.platformDispatcher.textScaleFactorTestValue = 2;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(home: HomeScreen()));
     await tester.tap(find.text('旅'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
@@ -59,7 +60,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(home: HomeScreen()));
     await tester.tap(find.text('旅'));
     await tester.pumpAndSettle();
     await expectLater(

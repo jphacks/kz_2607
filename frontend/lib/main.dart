@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'home_screen.dart';
+import 'login_screen.dart';
 import 'foundation/app_colors.dart';
 
 void main() => runApp(const MyApp());
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.home});
+  final Widget? home;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'kz_2607',
@@ -37,6 +38,6 @@ class MyApp extends StatelessWidget {
             displayColor: AppColors.text,
           ),
     ),
-    home: const HomeScreen(),
+    home: home ?? const LoginScreen(),
   );
 }
