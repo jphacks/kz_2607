@@ -8,6 +8,7 @@ from firebase_functions.params import SecretParam
 from petlogic.adapters import google_stt, google_tts, http_ai
 from petlogic.errors import ApiError
 from petlogic.exchange import cancel_exchange, get_exchange_result, report_exchange
+from petlogic.pet import get_pet
 from petlogic.register import register_device
 from petlogic.talk import talk
 
@@ -59,6 +60,14 @@ def registerDevice(req: https_fn.CallableRequest):
     uid = _require_uid(req)
     data = req.data or {}
     return _run(lambda: register_device(firestore.client(), uid, data.get("deviceId"), _now()))
+
+
+@https_fn.on_call()
+def getPet(req: https_fn.CallableRequest):
+    """自分の端末にいるペットの表示用情報を返す(読むだけ)。入力: deviceId。"""
+    uid = _require_uid(req)
+    data = req.data or {}
+    return _run(lambda: get_pet(firestore.client(), uid, data.get("deviceId")))
 
 
 @https_fn.on_call()
