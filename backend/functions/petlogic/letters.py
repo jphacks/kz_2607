@@ -5,11 +5,12 @@
 本文は、終わった代の要約(summaries)をもとに OpenAI が書く。失敗したら、定型の文にする。
 """
 import logging
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from .llm import openai_chat
 from .store import run_in_transaction
 from .summary import read_summaries
+from .users import ensure_first_pet_quietly, oldest_created_pet
 
 JST = timezone(timedelta(hours=9))
 DEFAULT_INTERVAL_DAYS = 14
@@ -117,20 +118,24 @@ def generate_letters(db, now, chat, notify, run_tx=run_in_transaction):
     return {"made": made}
 
 
-def get_letters(db, uid, limit=30):
-    """自分が最初に作ったペットから届いた手紙を、新しい順に返す。"""
+def get_letters(db, uid, limit=30, now=None):
+    """一番最初に作ったペット1体の、自分宛ての手紙を、新しい順に(最大30通)返す。
+
+    返す: {"firstPetId": ペットのID(いなければ null), "letters": [...]}
+    """
+    pet_id = ensure_first_pet_quietly(db, uid, now or datetime.now(timezone.utc)) or oldest_created_pet(db, uid)
+    if pet_id is None:
+        return {"firstPetId": None, "letters": []}
+    pet = db.collection("pets").document(pet_id).get()
+    name = pet.to_dict().get("name") if pet.exists else None
     out = []
-    for created in db.collection("users").document(uid).collection("createdPets").stream():
-        pet_id = created.id
-        pet = db.collection("pets").document(pet_id).get()
-        name = pet.to_dict().get("name") if pet.exists else None
-        for letter in db.collection("pets").document(pet_id).collection("letters").stream():
-            d = letter.to_dict()
-            if d.get("recipientUid") != uid:
-                continue
-            at = d.get("createdAt")
-            out.append({"letterId": letter.id, "petId": pet_id, "petName": name, "title": d.get("title"),
-                        "body": d.get("body"), "generation": d.get("generation"),
-                        "createdAt": at.isoformat() if hasattr(at, "isoformat") else None})
+    for letter in db.collection("pets").document(pet_id).collection("letters").stream():
+        d = letter.to_dict()
+        if d.get("recipientUid") != uid:
+            continue
+        at = d.get("createdAt")
+        out.append({"letterId": letter.id, "petId": pet_id, "petName": name, "title": d.get("title"),
+                    "body": d.get("body"), "generation": d.get("generation"),
+                    "createdAt": at.isoformat() if hasattr(at, "isoformat") else None})
     out.sort(key=lambda x: x["createdAt"] or "", reverse=True)
-    return {"letters": out[:limit]}
+    return {"firstPetId": pet_id, "letters": out[:limit]}

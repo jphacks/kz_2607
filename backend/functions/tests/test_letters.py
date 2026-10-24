@@ -134,7 +134,8 @@ def test_get_letters_returns_only_own_newest_first():
     mine = get_letters(db, "u1")["letters"]
     assert [x["petId"] for x in mine] == [a, a] and mine[0]["createdAt"] > mine[1]["createdAt"]
     assert mine[0]["petName"] == "モチ" and mine[0]["body"] == "元気にしているよ。"
-    assert get_letters(db, "nobody") == {"letters": []}
+    assert get_letters(db, "u1")["firstPetId"] == a
+    assert get_letters(db, "nobody") == {"firstPetId": None, "letters": []}
 
 
 def test_register_push_token_validation_and_idempotent():
@@ -148,3 +149,43 @@ def test_register_push_token_validation_and_idempotent():
         with pytest.raises(ApiError) as e:
             register_push_token(db, "u1", {"token": bad}, T0)
         assert e.value.code == "invalid-argument"
+
+
+def test_get_letters_only_for_the_first_created_pet():
+    db, a, b, _ = setup()
+    c = register_device(db, "u1", "devC", T0 + 5 * DAY)["petId"]  # u1が、あとから作った2体目
+    db.docs[(f"pets/{c}/letters", "x1")] = {"recipientUid": "u1", "title": "2体目", "body": "b",
+                                            "generation": 2, "createdAt": T0 + 20 * DAY}
+    generate_letters(db, T0 + 14 * DAY, ai, Notes(), run_tx)
+    r = get_letters(db, "u1")
+    assert r["firstPetId"] == a
+    assert r["letters"] and all(x["petId"] == a for x in r["letters"])  # 2体目の手紙は返さない
+
+
+def test_get_letters_no_letters_yet_returns_first_pet_id():
+    db, a, _, _ = setup()
+    assert get_letters(db, "u1") == {"firstPetId": a, "letters": []}
+
+
+def test_get_letters_max_30_newest_first():
+    db, a, _, _ = setup()
+    for i in range(35):
+        db.docs[(f"pets/{a}/letters", f"l{i:02d}")] = {"recipientUid": "u1", "title": str(i), "body": "b",
+                                                      "generation": 2, "createdAt": T0 + i * DAY}
+    letters = get_letters(db, "u1")["letters"]
+    assert len(letters) == 30 and letters[0]["title"] == "34" and letters[-1]["title"] == "5"
+
+
+def test_first_pet_is_the_oldest_even_if_ids_sort_otherwise():
+    from petlogic.users import oldest_created_pet as first_pet_id
+    db = FakeDb()
+    db.docs[("users/u9/createdPets", "aaa")] = {"createdAt": T0 + DAY}
+    db.docs[("users/u9/createdPets", "zzz")] = {"createdAt": T0}
+    assert first_pet_id(db, "u9") == "zzz"
+
+
+def test_get_letters_records_first_pet_id_for_old_users():
+    db, a, _, _ = setup()
+    db.docs[("users", "u1")].pop("firstPetId", None)
+    assert get_letters(db, "u1")["firstPetId"] == a
+    assert db.docs[("users", "u1")]["firstPetId"] == a

@@ -210,6 +210,7 @@ def test_ai_axes_renamed():
         "active": 0.1, "affection": 0.2, "logic": 0.3, "night": 0.4,
     }
     assert build_ai_payload("x", "p", {}, NOW) == {"text": "x", "petId": "p", "hour": 12, "generation": 1}
+    assert build_ai_payload("x", "p", {}, NOW, None, "child")["stage"] == "child"
 
 
 # --- AIサーバーへの接続(本物のHTTPサーバーで確かめる) ---

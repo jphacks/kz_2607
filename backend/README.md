@@ -23,3 +23,9 @@
 | 2026-10-24 | ユーザーの記録 `syncUser`(`users/{uid}` にメールアドレスなどを保存)。`registerDevice` でも裏で記録。テスト127件 |
 | 2026-10-24 | 思い出機能: 10往復ごとに裏で要約(`summarizeMemories`)、名前の伏せ字(nameMaps)、交換時の旅の記録(journeys)、会話でAIへ memories/nameMap/journeys/generation を送信。テスト144件 |
 | 2026-10-24 | ゲージを「会話10回で満タン」に変更(`TALKS_TO_FULL`)。モデルを `gpt-6-luna` に変更 |
+| 2026-10-25 | 性格の更新(6軸が飼い主に近づく)、`recordProgress`(歩数・すれ違い)を新規実装。交換で `axesBase` を記録。テスト158件 |
+| 2026-10-25 | 姿の段階(赤ちゃん→子供→大人)を新規実装。会話の累計(`totalTalks`)で決め、`getPet` に `stage` などを追加、`talkToPet` に `evolved` を追加。テスト162件 |
+| 2026-10-25 | 絵のキー(`appearance`)を新規実装。性格の強い2軸と段階で決め、`getPet` で返す(赤ちゃんの段階から性格を反映)。テスト167件 |
+| 2026-10-25 | `getLetters` を、一番最初に作った1体の手紙だけ(新しい順・最大30通)に変更。戻り値に `firstPetId` を追加。テスト171件 |
+| 2026-10-25 | `users/{uid}.firstPetId`(一番最初に作ったペット)を記録。`registerDevice` で書き、既存ユーザーは `getLetters` で自動補完。テスト176件 |
+| 2026-10-25 | 性格の更新を見直し(更新間隔・好奇心の重みを `config/game` で変更可、質問の判定に文末を追加、材料をログに出力)。テスト180件 |

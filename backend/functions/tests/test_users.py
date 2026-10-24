@@ -39,3 +39,47 @@ def test_quiet_version_swallows_errors():
         def collection(self, name):
             raise RuntimeError("down")
     upsert_user_quietly(Bad(), "u1", ANON, T0)
+
+
+# ---- users/{uid}.firstPetId ----
+from petlogic.register import register_device  # noqa: E402
+from petlogic.users import ensure_first_pet, oldest_created_pet  # noqa: E402
+
+
+def test_first_pet_is_recorded_on_first_device_only():
+    db = FakeDb()
+    a = register_device(db, "u1", "devA", T0)["petId"]
+    assert db.docs[("users", "u1")]["firstPetId"] == a
+    register_device(db, "u1", "devB", T1)  # 2体目を作っても、変わらない
+    assert db.docs[("users", "u1")]["firstPetId"] == a
+
+
+def test_first_pet_keeps_existing_user_fields():
+    db = FakeDb()
+    upsert_user(db, "u1", MAIL, T0)
+    a = register_device(db, "u1", "devA", T1)["petId"]
+    doc = db.docs[("users", "u1")]
+    assert doc["firstPetId"] == a and doc["email"] == "a@example.com" and doc["createdAt"] == T0
+    upsert_user(db, "u1", MAIL, T1)  # あとから記録を更新しても、消えない
+    assert db.docs[("users", "u1")]["firstPetId"] == a
+
+
+def test_user_doc_created_by_register_gets_filled_by_upsert():
+    db = FakeDb()
+    a = register_device(db, "u1", "devA", T0)["petId"]
+    upsert_user(db, "u1", ANON, T1)
+    doc = db.docs[("users", "u1")]
+    assert doc["firstPetId"] == a and doc["isAnonymous"] is True and doc["uid"] == "u1"
+
+
+def test_ensure_backfills_old_users_and_handles_no_pet():
+    db = FakeDb()
+    assert ensure_first_pet(db, "nobody", T0) is None and ("users", "nobody") not in db.docs
+    db.docs[("users/u9/createdPets", "old")] = {"createdAt": T0}
+    db.docs[("users/u9/createdPets", "new")] = {"createdAt": T1}
+    db.docs[("users", "u9")] = {"uid": "u9", "email": "x@example.com"}  # 昔のユーザー(firstPetId なし)
+    assert oldest_created_pet(db, "u9") == "old"
+    assert ensure_first_pet(db, "u9", T1) == "old"
+    assert db.docs[("users", "u9")]["firstPetId"] == "old" and db.docs[("users", "u9")]["email"] == "x@example.com"
+    db.docs[("users/u9/createdPets", "older")] = {"createdAt": T0 - (T1 - T0)}
+    assert ensure_first_pet(db, "u9", T1) == "old"  # 一度決まったら、変わらない
