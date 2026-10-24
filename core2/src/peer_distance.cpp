@@ -124,7 +124,6 @@ uint32_t peerDistanceRevision() {
   portEXIT_CRITICAL(&peersMux);
   return current;
 }
-
 bool peerDistanceReadAddress(const char* address, PeerDistanceReading& reading,
                              unsigned long maxAgeMs) {
   Peer match;
