@@ -10,7 +10,9 @@ namespace {
 constexpr char kDataUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000005";
 constexpr char kControlUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000006";
 constexpr uint8_t kWindowSize = 4;
-constexpr unsigned long kPacketSpacingMs = 12;
+// Keep the Android receiver's four-packet ACK window; only reduce idle time
+// between notifications. A failed notify is retried on a later loop pass.
+constexpr unsigned long kPacketSpacingMs = 6;
 constexpr unsigned long kAckTimeoutMs = 500;
 constexpr uint8_t kMaxRetries = 6;
 
@@ -29,6 +31,8 @@ uint16_t windowFirst = 0;
 uint16_t windowLast = 0;
 uint16_t nextSequence = 0;
 uint8_t retries = 0;
+uint16_t totalRetries = 0;
+unsigned long transferStartedAt = 0;
 unsigned long sentAt = 0;
 uint8_t packet[244] = {};
 size_t packetLength = 0;
@@ -91,6 +95,9 @@ void beginWindow(uint16_t first) {
 }
 
 void finish(bool success) {
+  Serial.printf("Voice uplink: %s, %lu ms, %u bytes, %u retries\n",
+                success ? "complete" : "failed", millis() - transferStartedAt,
+                static_cast<unsigned>(voiceEncodedSize()), totalRetries);
   sending = false;
   voiceTransferFinished(success);
 }
@@ -139,6 +146,8 @@ void voiceTransferUpdate(bool connected) {
     dataPackets = static_cast<uint16_t>(count);
     ++session;
     retries = 0;
+    totalRetries = 0;
+    transferStartedAt = millis();
     takeAck();
     phase = Phase::Start;
     sending = true;
@@ -190,9 +199,11 @@ void voiceTransferUpdate(bool connected) {
   if (++retries > kMaxRetries) {
     finish(false);
   } else if (phase == Phase::Data) {
+    ++totalRetries;
     nextSequence = windowFirst;
     waitingForWindow = false;
   } else {
+    ++totalRetries;
     sendPacket();
   }
 }

@@ -18,6 +18,7 @@ uint8_t* encoded = nullptr;
 size_t sampleCount = 0;
 size_t queuedSamples = 0;
 bool wasPressed = false;
+bool replyStreamActive = false;
 uint32_t revision = 0;
 const char* message = "Hold A to record (max 5s)";
 
@@ -136,7 +137,7 @@ void voiceUpdate(bool canRecord) {
   wasPressed = pressed;
 
   if (state == State::PlayingReply) {
-    if (!M5.Speaker.isPlaying()) {
+    if (!replyStreamActive && !M5.Speaker.isPlaying()) {
       M5.Speaker.end();
       setState(State::Idle, "Reply playback finished");
     }
@@ -177,6 +178,7 @@ void voiceUpdate(bool canRecord) {
 void voiceCancel(const char* reason) {
   if (state == State::Recording) M5.Mic.end();
   if (state == State::PlayingReply) M5.Speaker.end();
+  replyStreamActive = false;
   queuedSamples = 0;
   sampleCount = 0;
   setState(State::Idle, reason);
@@ -186,18 +188,23 @@ bool voiceRecording() { return state == State::Recording; }
 bool voiceReady() { return state == State::Ready; }
 bool voiceCanPlayReply() { return state == State::Idle || state == State::Error; }
 bool voicePlayingReply() { return state == State::PlayingReply; }
-bool voicePlayReply(const int16_t* samples, size_t count) {
-  if (!voiceCanPlayReply() || samples == nullptr || count == 0) return false;
+bool voiceStartReplyStream() {
+  if (!voiceCanPlayReply()) return false;
   M5.Mic.end();
   if (!M5.Speaker.begin()) return false;
   M5.Speaker.setVolume(128);
-  if (!M5.Speaker.playRaw(samples, count, 16000)) {
-    M5.Speaker.end();
-    return false;
-  }
+  replyStreamActive = true;
   setState(State::PlayingReply, "Playing reply...");
   return true;
 }
+bool voiceQueueReplySamples(const int16_t* samples, size_t count) {
+  if (state != State::PlayingReply || !replyStreamActive ||
+      samples == nullptr || count == 0 || M5.Speaker.isPlaying(0) >= 2) {
+    return false;
+  }
+  return M5.Speaker.playRaw(samples, count, kSampleRate, false, 1, 0);
+}
+void voiceFinishReplyStream() { replyStreamActive = false; }
 size_t voiceSampleCount() { return sampleCount; }
 size_t voiceEncodedSize() { return (sampleCount + 1) / 2; }
 const uint8_t* voiceEncodedData() { return encoded; }
