@@ -9,10 +9,11 @@ namespace {
 
 constexpr char kDataUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000005";
 constexpr char kControlUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000006";
-constexpr uint8_t kWindowSize = 4;
-// Keep the Android receiver's four-packet ACK window; only reduce idle time
-// between notifications. A failed notify is retried on a later loop pass.
-constexpr unsigned long kPacketSpacingMs = 6;
+// Android ACKs every four packets and at the end, so every eight-packet
+// boundary also has an ACK.
+constexpr uint8_t kWindowSize = 8;
+constexpr uint8_t kFastPacketSpacingMs = 2;
+constexpr uint8_t kMaxPacketSpacingMs = 10;
 constexpr unsigned long kAckTimeoutMs = 500;
 constexpr uint8_t kMaxRetries = 6;
 
@@ -32,6 +33,7 @@ uint16_t windowLast = 0;
 uint16_t nextSequence = 0;
 uint8_t retries = 0;
 uint16_t totalRetries = 0;
+uint8_t packetSpacingMs = kFastPacketSpacingMs;
 unsigned long transferStartedAt = 0;
 unsigned long sentAt = 0;
 uint8_t packet[244] = {};
@@ -147,6 +149,7 @@ void voiceTransferUpdate(bool connected) {
     ++session;
     retries = 0;
     totalRetries = 0;
+    packetSpacingMs = kFastPacketSpacingMs;
     transferStartedAt = millis();
     takeAck();
     phase = Phase::Start;
@@ -166,6 +169,9 @@ void voiceTransferUpdate(bool connected) {
       return;
     }
     if (phase == Phase::Data && waitingForWindow && sequence == windowLast) {
+      if (retries == 0 && packetSpacingMs > kFastPacketSpacingMs) {
+        --packetSpacingMs;
+      }
       if (sequence == dataPackets) {
         phase = Phase::End;
         retries = 0;
@@ -183,7 +189,7 @@ void voiceTransferUpdate(bool connected) {
   }
 
   if (phase == Phase::Data && !waitingForWindow) {
-    if (millis() - sentAt < kPacketSpacingMs) return;
+    if (millis() - sentAt < packetSpacingMs) return;
     preparePacket(nextSequence);
     if (sendPacket()) {
       if (nextSequence == windowLast) {
@@ -191,6 +197,8 @@ void voiceTransferUpdate(bool connected) {
       } else {
         ++nextSequence;
       }
+    } else if (packetSpacingMs < kMaxPacketSpacingMs) {
+      ++packetSpacingMs;
     }
     return;
   }
@@ -200,6 +208,8 @@ void voiceTransferUpdate(bool connected) {
     finish(false);
   } else if (phase == Phase::Data) {
     ++totalRetries;
+    packetSpacingMs = min(static_cast<int>(packetSpacingMs) + 2,
+                          static_cast<int>(kMaxPacketSpacingMs));
     nextSequence = windowFirst;
     waitingForWindow = false;
   } else {
