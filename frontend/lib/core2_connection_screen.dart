@@ -3,16 +3,23 @@ import 'foundation/services/core2_ble.dart';
 
 /// Temporary diagnostic UI; product screens will be implemented separately.
 class Core2ConnectionPage extends StatefulWidget {
-  const Core2ConnectionPage({super.key});
+  const Core2ConnectionPage({super.key, this.ble});
+  final Core2Ble? ble;
   @override
   State<Core2ConnectionPage> createState() => _Core2ConnectionPageState();
 }
 
 class _Core2ConnectionPageState extends State<Core2ConnectionPage> {
-  final ble = Core2Ble();
+  late final Core2Ble ble;
+  @override
+  void initState() {
+    super.initState();
+    ble = widget.ble ?? Core2Ble();
+  }
+
   @override
   void dispose() {
-    ble.dispose();
+    if (widget.ble == null) ble.dispose();
     super.dispose();
   }
 
