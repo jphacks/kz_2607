@@ -1,7 +1,13 @@
 // 本物のFirebaseで、手紙までの流れを試す。実機はいらない。
-//  1) FIREBASE_API_KEY=xxxx node scripts/letters.mjs start [録音.wav]
-//  2) 数十秒待ち、Cloud Scheduler で sendLettersDaily を強制実行
-//  3) FIREBASE_API_KEY=xxxx node scripts/letters.mjs check
+//
+//  1) 準備(ユーザー2人・端末2台を作り、会話して、交換する)
+//       FIREBASE_API_KEY=xxxx node scripts/letters.mjs start 録音.wav
+//     録音は、talkToPet に送る WAV(16bit・モノラル)。省略すると、会話せずに交換だけ行う(要約は空になる)。
+//  2) 数十秒待ってから、Google Cloud コンソールの Cloud Scheduler で sendLettersDaily を「強制実行」
+//  3) 結果の確認
+//       FIREBASE_API_KEY=xxxx node scripts/letters.mjs check
+//
+// 手紙をすぐ出すには、Firestore の config/game の letterIntervalDays を 0 にしておく。
 import fs from "node:fs";
 
 const PROJECT = process.env.FIREBASE_PROJECT || "pet-handoff-hack";

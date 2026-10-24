@@ -21,3 +21,4 @@
 | 2026-10-24 | 手紙の準備(2/3): 交換のあと、裏で、終わった代の会話を OpenAI で要約して保存(`summarizeHandoff`)。テスト112件 |
 | 2026-10-24 | 手紙の準備(3/3): 毎朝9時の手紙(`sendLettersDaily`)、`getLetters`、`registerPushToken`、通知(FCM)。テスト123件 |
 | 2026-10-24 | ユーザーの記録 `syncUser`(`users/{uid}` にメールアドレスなどを保存)。`registerDevice` でも裏で記録。テスト127件 |
+| 2026-10-24 | 思い出機能: 10往復ごとに裏で要約(`summarizeMemories`)、名前の伏せ字(nameMaps)、交換時の旅の記録(journeys)、会話でAIへ memories/nameMap/journeys/generation を送信。テスト144件 |

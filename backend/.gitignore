@@ -1,6 +1,8 @@
 venv/
 __pycache__/
 .env
+!functions/.env
+.letters-test.json
 *.zip
 *.key
 *.pem
@@ -8,5 +10,3 @@ node_modules/
 firebase-debug.log
 *.wav
 *.adpcm
-!functions/.env
-.letters-test.json

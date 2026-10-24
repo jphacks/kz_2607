@@ -9,14 +9,17 @@ from firebase_functions.params import SecretParam
 from petlogic.adapters import google_stt, google_tts, http_ai
 from petlogic.errors import ApiError
 from petlogic.exchange import cancel_exchange, get_exchange_result, report_exchange
+from petlogic.journey import finish_journeys, start_journeys
 from petlogic.letters import generate_letters, get_letters
 from petlogic.llm import openai_chat
+from petlogic.memory import BATCH_TURNS, summarize_memories
 from petlogic.pet import get_pet
 from petlogic.push import fcm_notify, register_push_token
 from petlogic.users import upsert_user, upsert_user_quietly
 from petlogic.summary import make_summarizer, summarize_handoff
 from petlogic.register import register_device
 from petlogic.talk import talk
+from petlogic.talklog import pending_turns
 
 initialize_app()
 options.set_global_options(region="asia-northeast1", max_instances=10)
@@ -146,8 +149,22 @@ def talkToPet(req: https_fn.CallableRequest):
 @firestore_fn.on_document_created(document="handoffs/{handoffId}", secrets=[OPENAI_API_KEY], timeout_sec=300)
 def summarizeHandoff(event: firestore_fn.Event[firestore_fn.DocumentSnapshot]):
     """交換が確定したあと、手放した代の会話を要約して取っておく(手紙の材料)。"""
-    summarize = make_summarizer(OPENAI_API_KEY.value, os.environ.get("OPENAI_MODEL"))
-    summarize_handoff(firestore.client(), event.params["handoffId"], summarize, _now())
+    key, model = OPENAI_API_KEY.value, os.environ.get("OPENAI_MODEL")
+    db, handoff_id = firestore.client(), event.params["handoffId"]
+    start_journeys(db, handoff_id)  # 値(言葉・会話数・時間帯)は、AIなしで先に書く
+    summarize_handoff(db, handoff_id, make_summarizer(key, model), _now())
+    finish_journeys(db, handoff_id, lambda system, user: openai_chat(system, user, key, model, json_mode=True), _now())
+
+
+@firestore_fn.on_document_written(document="pets/{petId}/talkLogs/{generation}", secrets=[OPENAI_API_KEY], timeout_sec=300)
+def summarizeMemories(event: firestore_fn.Event[firestore_fn.Change[firestore_fn.DocumentSnapshot]]):
+    """会話が10往復たまるたびに、裏で思い出にまとめる(会話の返事は待たせない)。"""
+    after = event.data.after
+    if after is None or not after.exists or len(pending_turns(after.to_dict())) < BATCH_TURNS:
+        return
+    key, model = OPENAI_API_KEY.value, os.environ.get("OPENAI_MODEL")
+    summarize_memories(firestore.client(), event.params["petId"], int(event.params["generation"]),
+                       lambda system, user: openai_chat(system, user, key, model, json_mode=True), _now())
 
 
 @scheduler_fn.on_schedule(schedule="0 9 * * *", timezone="Asia/Tokyo", timeout_sec=300, secrets=[OPENAI_API_KEY])

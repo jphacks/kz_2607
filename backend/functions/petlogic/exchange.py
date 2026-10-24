@@ -149,6 +149,10 @@ def report_exchange(db, uid, data, now, run_tx=run_in_transaction):
                 # 手放した時点で終わった代(要約の対象)
                 "endedGenerations": {given: gen_given - 1, got: gen_got - 1},
                 "summaryStatus": "pending",
+                "journeyStatus": "pending",
+                # 終わった代で話した回数(ポイントは、この交換で0に戻るので、ここで控える)
+                "endedTalkCounts": {given: int(given_snap.to_dict().get("points", 0)),
+                                    got: int(got_snap.to_dict().get("points", 0))},
             },
         )
         tx.create(
