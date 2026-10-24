@@ -2,6 +2,9 @@
 #include <M5Unified.h>
 #include <NimBLEDevice.h>
 
+#include "voice_recorder.h"
+#include "voice_transfer.h"
+
 namespace {
 
 constexpr char kDeviceName[] = "M5StackCore2";
@@ -28,6 +31,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override {
     connected = false;
     connectionChanged = true;
+    voiceTransferClearConfiguration();
     NimBLEDevice::startAdvertising();
   }
 };
@@ -49,8 +53,18 @@ void drawScreen() {
   M5.Display.printf("Name: %s", kDeviceName);
   M5.Display.setCursor(16, 155);
   M5.Display.printf("MAC: %s", macAddress.c_str());
-  M5.Display.setCursor(16, 175);
-  M5.Display.printf("ID: M5-%s", deviceId.c_str());
+
+  M5.Display.drawFastHLine(16, 180, M5.Display.width() - 32, TFT_WHITE);
+  M5.Display.setCursor(16, 190);
+  if (voiceRecording()) {
+    M5.Display.printf("Recording: %.1f / 5.0 s", voiceDurationSeconds());
+  } else if (connected && !voiceTransferConfigured()) {
+    M5.Display.print("Open Android voice receiver");
+  } else {
+    M5.Display.print(voiceMessage());
+  }
+  M5.Display.setCursor(16, 215);
+  M5.Display.print("Hold A to talk");
 }
 
 void startBle() {
@@ -68,6 +82,7 @@ void startBle() {
   NimBLECharacteristic* status = service->createCharacteristic(
       kStatusUuid, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
   status->setValue(statusJson().c_str());
+  voiceTransferBegin(service);
   server->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
@@ -81,15 +96,31 @@ void startBle() {
 
 void setup() {
   M5.begin(M5.config());
+  voiceBegin();
   startBle();
   drawScreen();
 }
 
 void loop() {
   M5.update();
+  voiceUpdate(connected && voiceTransferConfigured());
+  voiceTransferUpdate(connected);
+  static uint32_t lastVoiceRevision = 0;
+  static unsigned long lastDraw = 0;
   if (connectionChanged) {
     connectionChanged = false;
+    if (!connected) {
+      voiceTransferReset();
+      voiceCancel("Disconnected");
+    }
     drawScreen();
+    lastVoiceRevision = voiceRevision();
+    lastDraw = millis();
+  } else if (voiceRevision() != lastVoiceRevision &&
+             (!voiceRecording() || millis() - lastDraw >= 200)) {
+    drawScreen();
+    lastVoiceRevision = voiceRevision();
+    lastDraw = millis();
   }
-  delay(20);
+  delay(2);
 }
