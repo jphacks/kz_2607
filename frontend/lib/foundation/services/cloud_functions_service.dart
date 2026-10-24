@@ -103,7 +103,9 @@ class CloudFunctionsService {
       result = await _invoke('recordProgress', data, const Duration(seconds: 30));
     } on FirebaseFunctionsException catch (error) {
       if (error.code != 'invalid-argument' ||
-          !(error.message ?? '').contains('steps')) rethrow;
+          !(error.message ?? '').contains('steps')) {
+        rethrow;
+      }
       // Some native callable codecs send Dart int as a protobuf Int64Value.
       // A direct callable request preserves this bounded value as a JSON int.
       result = await _progressFallback(data);
@@ -141,7 +143,7 @@ class CloudFunctionsService {
         throw FirebaseFunctionsException(
           code: (error['status']?.toString() ?? 'unknown')
               .toLowerCase().replaceAll('_', '-'),
-          message: error['message']?.toString(),
+          message: error['message']?.toString() ?? '歩数の送信に失敗しました。',
           details: error['details'],
         );
       }
