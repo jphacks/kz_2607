@@ -1,5 +1,7 @@
 """ペット情報の取得(読むだけ)。ホーム画面の表示に使う。"""
 from .errors import ApiError
+from .appearance import appearance_of
+from .growth import stage_config, stage_of
 from .register import validate_device_id
 
 
@@ -20,6 +22,7 @@ def get_pet(db, uid, device_id):
     pet = pet.to_dict()
 
     created = pet.get("createdAt")
+    stage = stage_of(pet.get("totalTalks", 0), *stage_config(db))
     return {
         "deviceId": device_id,
         "petId": pet_id,
@@ -27,6 +30,9 @@ def get_pet(db, uid, device_id):
         "generation": pet.get("generation", 1),
         "points": pet.get("points", 0.0),
         "gauge": pet.get("gauge", 0.0),
+        "totalTalks": pet.get("totalTalks", 0),
+        **stage,
+        "appearance": appearance_of(pet_id, pet.get("personalityAxes"), stage["stage"]),
         "personalityAxes": pet.get("personalityAxes", {}),
         "learnedWords": list(pet.get("learnedWords", [])),
         "createdAt": created.isoformat() if hasattr(created, "isoformat") else None,

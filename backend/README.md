@@ -22,3 +22,7 @@
 | 2026-10-24 | 手紙の準備(3/3): 毎朝9時の手紙(`sendLettersDaily`)、`getLetters`、`registerPushToken`、通知(FCM)。テスト123件 |
 | 2026-10-24 | ユーザーの記録 `syncUser`(`users/{uid}` にメールアドレスなどを保存)。`registerDevice` でも裏で記録。テスト127件 |
 | 2026-10-24 | 思い出機能: 10往復ごとに裏で要約(`summarizeMemories`)、名前の伏せ字(nameMaps)、交換時の旅の記録(journeys)、会話でAIへ memories/nameMap/journeys/generation を送信。テスト144件 |
+| 2026-10-24 | ゲージを「会話10回で満タン」に変更(`TALKS_TO_FULL`)。モデルを `gpt-6-luna` に変更 |
+| 2026-10-25 | 性格の更新(6軸が飼い主に近づく)、`recordProgress`(歩数・すれ違い)を新規実装。交換で `axesBase` を記録。テスト158件 |
+| 2026-10-25 | 姿の段階(赤ちゃん→子供→大人)を新規実装。会話の累計(`totalTalks`)で決め、`getPet` に `stage` などを追加、`talkToPet` に `evolved` を追加。テスト162件 |
+| 2026-10-25 | 絵のキー(`appearance`)を新規実装。性格の強い2軸と段階で決め、`getPet` で返す(赤ちゃんの段階から性格を反映)。テスト167件 |

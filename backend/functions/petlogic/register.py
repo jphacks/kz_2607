@@ -34,6 +34,7 @@ def new_pet(uid, now):
         "learnedWords": [],
         "points": 0.0,
         "gauge": 0.0,
+        "totalTalks": 0,  # 会話の累計(交換しても引き継ぐ。姿の段階に使う)
         "generation": 1,  # 手渡しされるたびに、1ずつ増える
     }
 

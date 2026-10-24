@@ -126,10 +126,15 @@ def report_exchange(db, uid, data, now, run_tx=run_in_transaction):
         gen_given = given_snap.to_dict().get("generation", 1) + 1
         gen_got = got_snap.to_dict().get("generation", 1) + 1
         handoff_ref = db.collection("handoffs").document()
+        # 性格は引き継ぐ。新しい飼い主の影響の上限は、この時点の値が基準になる
         tx.update(given_ref, {"generation": gen_given, "points": 0.0, "gauge": 0.0,
-                              "ownerUid": peer.get("ownerUid"), "generationStartedAt": now})
+                              "ownerUid": peer.get("ownerUid"), "generationStartedAt": now,
+                              "axesBase": given_snap.to_dict().get("personalityAxes", {}),
+                              "axesUpdatedPoints": 0.0, "axesUpdatedAt": now})
         tx.update(got_ref, {"generation": gen_got, "points": 0.0, "gauge": 0.0,
-                            "ownerUid": uid, "generationStartedAt": now})
+                            "ownerUid": uid, "generationStartedAt": now,
+                            "axesBase": got_snap.to_dict().get("personalityAxes", {}),
+                            "axesUpdatedPoints": 0.0, "axesUpdatedAt": now})
         tx.update(my_ref, {"currentPetId": got, "lastHandoffId": handoff_ref.id})
         tx.update(peer_ref, {"currentPetId": given, "lastHandoffId": handoff_ref.id})
         record = {
