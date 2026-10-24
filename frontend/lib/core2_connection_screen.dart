@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'cloud_functions_screen.dart';
+import 'designsystem/voice_cloud_panel.dart';
 import 'foundation/services/core2_ble.dart';
 
 /// Temporary diagnostic UI; product screens will be implemented separately.
@@ -71,6 +72,11 @@ class _Core2ConnectionPageState extends State<Core2ConnectionPage> {
                 child: const Text('接続'),
               ),
             ),
+          const Divider(),
+          VoiceCloudPanel(
+            key: ValueKey(ble.device?.remoteId.str),
+            service: ble.voiceCloud,
+          ),
           const Divider(),
           const Text('Core2の録音音声'),
           const Text('接続が完了すると、自動で音声の受信準備をします。Core2で録音してください。'),
