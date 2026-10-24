@@ -6,6 +6,7 @@
 #include "voice_transfer.h"
 #include "reply_receiver.h"
 #include "peer_distance.h"
+#include "pet_config.h"
 
 namespace {
 
@@ -17,11 +18,13 @@ volatile bool connected = false;
 volatile bool connectionChanged = true;
 String macAddress;
 String deviceId;
+NimBLECharacteristic* statusCharacteristic = nullptr;
 
 String statusJson() {
   // Keep the basic fields understood by the demo Android status parser.
   return "{\"id\":\"M5-" + deviceId + "\",\"mac\":\"" + macAddress +
-         "\",\"peerId\":\"\",\"distance\":0,\"petId\":\"\"}";
+         "\",\"peerId\":\"\",\"distance\":0,\"petId\":\"" +
+         petConfigId() + "\"}";
 }
 
 class ServerCallbacks : public NimBLEServerCallbacks {
@@ -80,9 +83,13 @@ void drawScreen() {
   }
   M5.Display.setCursor(16, 169);
   M5.Display.printf("MY MAC: %s", macAddress.c_str());
+  M5.Display.setCursor(16, 180);
+  const String& petId = petConfigId();
+  M5.Display.print("PET ID: ");
+  M5.Display.print(petId.isEmpty() ? "--" : petId.substring(0, 42));
 
-  M5.Display.drawFastHLine(16, 188, M5.Display.width() - 32, TFT_WHITE);
-  M5.Display.setCursor(16, 198);
+  M5.Display.drawFastHLine(16, 194, M5.Display.width() - 32, TFT_WHITE);
+  M5.Display.setCursor(16, 202);
   if (voiceRecording()) {
     M5.Display.printf("Recording: %.1f / 5.0 s", voiceDurationSeconds());
   } else if (replyReceiverReceiving()) {
@@ -96,7 +103,7 @@ void drawScreen() {
   } else {
     M5.Display.print(voiceMessage());
   }
-  M5.Display.setCursor(16, 220);
+  M5.Display.setCursor(16, 224);
   M5.Display.print("Hold A to talk");
 }
 
@@ -112,9 +119,10 @@ void startBle() {
   server->setCallbacks(new ServerCallbacks());
 
   NimBLEService* service = server->createService(kServiceUuid);
-  NimBLECharacteristic* status = service->createCharacteristic(
+  statusCharacteristic = service->createCharacteristic(
       kStatusUuid, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-  status->setValue(statusJson().c_str());
+  petConfigBegin(service, statusCharacteristic, deviceId);
+  statusCharacteristic->setValue(statusJson().c_str());
   voiceTransferBegin(service);
   replyReceiverBegin(service);
   server->start();
@@ -142,36 +150,49 @@ void loop() {
   voiceUpdate(connected && voiceTransferConfigured() && !replyReceiverBusy());
   voiceTransferUpdate(connected);
   replyReceiverUpdate(connected);
+  petConfigUpdate(connected);
   const bool audioBusy = voiceRecording() || voiceReady() ||
       voiceTransferSending() || replyReceiverBusy() || voicePlayingReply();
   peerDistanceUpdate(audioBusy);
   static uint32_t lastVoiceRevision = 0;
   static uint32_t lastReplyRevision = 0;
   static uint32_t lastPeerRevision = 0;
+  static uint32_t lastPetRevision = 0;
+  static uint32_t lastPetNotifyRevision = 0;
   static unsigned long lastDraw = 0;
+  if (petConfigRevision() != lastPetNotifyRevision) {
+    lastPetNotifyRevision = petConfigRevision();
+    const String json = statusJson();
+    statusCharacteristic->setValue(json.c_str());
+    if (connected) statusCharacteristic->notify();
+  }
   if (connectionChanged) {
     connectionChanged = false;
     if (!connected) {
       voiceTransferReset();
       voiceCancel("Disconnected");
       replyReceiverReset();
+      petConfigReset();
     }
     drawScreen();
     lastVoiceRevision = voiceRevision();
     lastReplyRevision = replyReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
+    lastPetRevision = petConfigRevision();
     lastDraw = millis();
   } else if (((voiceRevision() != lastVoiceRevision ||
                replyReceiverRevision() != lastReplyRevision) &&
               ((!voiceRecording() && !replyReceiverReceiving()) ||
                millis() - lastDraw >= 200)) ||
-             (peerDistanceRevision() != lastPeerRevision &&
+             ((petConfigRevision() != lastPetRevision ||
+               peerDistanceRevision() != lastPeerRevision) &&
               millis() - lastDraw >= 250) ||
              (!audioBusy && millis() - lastDraw >= 1000)) {
     drawScreen();
     lastVoiceRevision = voiceRevision();
     lastReplyRevision = replyReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
+    lastPetRevision = petConfigRevision();
     lastDraw = millis();
   }
   delay(2);

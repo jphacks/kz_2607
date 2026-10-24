@@ -5,6 +5,29 @@ The Core2 advertises as `M5StackCore2` with service
 state. An Android receiver must subscribe to the voice data notification and
 configure the transfer before recording is enabled.
 
+## Pet ID configuration and status
+
+The status characteristic (`...0002`, read/notify) contains a JSON object with
+`id`, `mac`, `peerId`, `distance`, and `petId`. For example, before pet
+configuration it reports
+`{"id":"M5-AABBCCDDEEFF","mac":"AA:BB:CC:DD:EE:FF","peerId":"","distance":0,"petId":""}`.
+The peer fields are currently placeholders. After configuration, `petId`
+contains the saved ID. Core2 updates the readable status and notifies Android
+when it changes, and displays the last received ID even while disconnected.
+It reloads the ID from ESP32 Preferences after reboot, and the saved value
+remains available in the status JSON.
+
+Android writes `{"type":"pet_config","transactionId":"<16 hex digits>","deviceId":"<12 hex digits>","petId":"<ID>"}`
+to command characteristic `7f5a0001-7b7d-4f3b-9d01-000000000003`.
+As in the demo, this JSON is split into 20-byte frames: `F`, version 1,
+type (`1` data or `2` ACK), reserved zero, 8-byte little-endian transaction ID,
+sequence, frame count, payload length, and up to 5 payload bytes. Core2 ACKs
+each data frame on the status characteristic. After saving the ID, it sends
+`pet_config_ack` with `transactionId`, `status: "received"`, and `deviceId`
+over the same framing; Android ACKs those frames. Invalid device IDs and
+empty or malformed pet IDs are ignored. A successful application ACK means
+the new ID was saved.
+
 ## Nearby Core2 distance
 
 Each Core2 keeps advertising its service UUID while connected to Android and
