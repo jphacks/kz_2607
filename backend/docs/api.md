@@ -82,3 +82,60 @@
 - ゲージが満タンでないと交換できない、という条件
 - 両端末の報告がそろってから確定する、というモード
 
+# 音声会話(talkToPet)
+録音 → 文字 → AIの返答 → 声、を1回で行う。待ち時間は最大120秒。
+
+| 送る | 内容 |
+| --- | --- |
+| `deviceId` | 録音した端末(自分の端末) |
+| `audioBase64` | WAVをBase64にしたもの。**16bit・モノラル・8000〜48000Hz**(16000Hz推奨)、**30秒まで** |
+| `languageCode` | `ja-JP`(既定)か `en-US` |
+| `petId` | 任意。渡すと、いまその端末のペットか確かめる(交換直後に古いペットへ話しかけるのを防ぐ) |
+| `wantAudio` | 既定 `true`。`false` なら、返事の声を作らない(文章だけ返す) |
+
+返る
+```
+{ status: "ok" | "no_speech", transcript, replyText,
+  audioStatus: "ok" | "failed" | "skipped",
+  replyAudioBase64, replyAudio: { format: "wav", sampleRate, channels },   // audioStatus が ok のときだけ
+  petId, durationSec }
+```
+- `no_speech`: 声が聞き取れなかった。AIは呼ばない。再録音を促す
+- `audioStatus: "failed"`: 声が作れなかった。**文章(`replyText`)は返る**ので、画面には出せる
+- 返事の文章は200文字まで。声は、24kHz・モノラル・16bitのWAV
+- 音声は保存しない
+
+エラー
+| code | reason | 意味・対処 |
+| --- | --- | --- |
+| `invalid-argument` | `bad_wav` / `bad_format` / `audio_empty` | WAVとして読めない、ステレオなど、空 |
+| `invalid-argument` | `audio_too_long` / `audio_too_large` | 30秒を超えた、またはデータが大きすぎる |
+| `permission-denied` | | 自分の端末ではない |
+| `not-found` | | 端末が未登録 |
+| `failed-precondition` | `pet_changed`(`currentPetId` つき) | 端末のペットが変わっていた。**その会話は捨てる** |
+| `resource-exhausted` | `rate_limited`(`retryAfterSec` つき) | 1分間に6回まで |
+| `unavailable` | `stt_failed` | 文字起こしに失敗。少し待って再送してよい |
+| `unavailable` | `ai_failed` | AIの返答を作れなかった。少し待って再送してよい |
+| `unavailable` | `ai_not_configured` | AIがまだつながっていない |
+
+## AIサーバーに送る内容
+`POST <config/ai の url>` に、JSONを送る。ヘッダー `X-Api-Key` に、Secret Managerの `TALK_API_KEY` を入れる。
+
+| 項目 | 内容 |
+| --- | --- |
+| `text` | 聞き取った文字 |
+| `petId` | ペットID |
+| `petName` | ペットの名前(あれば) |
+| `personalityAxes` | 性格6軸(0〜1)。`active`、`affection`、`talkative`、`logic`、`curious`、`night` |
+| `hour` | 日本時間の「いまの時」(0〜23) |
+
+返事は `reply_text`(`replyText` や `reply` でもよい)に、文章を入れる。
+
+AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の `url` から読む(`https://` で始まるもの)。変えるのに、再デプロイは要らない。
+`mode` を `"echo"` にすると、AIを呼ばず、聞いた言葉をそのまま返す(AIが用意できるまでの、動作確認用)。
+
+## まだ対応していないこと
+- ペットが言葉を覚える処理(AIが選んだ言葉の保存)
+- Core2向けの声の形式(16kHz・IMA-ADPCM)
+- 会話の履歴(AIに渡す、直前の会話)
+

@@ -95,5 +95,20 @@ check("cancelExchange: 取り消し", c2.body.result?.status === "cancelled", c2
 const after = await call("reportExchange", token, { ...ex, transactionId: tid2 });
 check("取り消し後の報告は拒否", after.body.error?.status === "FAILED_PRECONDITION", after);
 
+// --- 音声会話(無音の録音は、聞き取れなかった扱いになる) ---
+function silentWav(seconds, rate = 16000) {
+  const n = seconds * rate;
+  const buf = Buffer.alloc(44 + n * 2);
+  buf.write("RIFF", 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write("WAVEfmt ", 8);
+  buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(rate, 24); buf.writeUInt32LE(rate * 2, 28); buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34); buf.write("data", 36); buf.writeUInt32LE(n * 2, 40);
+  return buf;
+}
+const talkRes = await call("talkToPet", token, { deviceId: devA, audioBase64: silentWav(1).toString("base64") });
+check("talkToPet: 無音は no_speech(音声認識APIにつながっている)", talkRes.body.result?.status === "no_speech", talkRes);
+const badTalk = await call("talkToPet", token, { deviceId: devA, audioBase64: "AAAA" });
+check("talkToPet: 壊れた録音は拒否", badTalk.body.error?.status === "INVALID_ARGUMENT", badTalk);
+
 console.log(failed ? "\n失敗あり" : "\nすべて成功");
 process.exit(failed ? 1 : 0);

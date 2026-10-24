@@ -11,3 +11,4 @@
 | 2026-10-24 | `registerDevice` を新規実装(端末登録とペット作成)。テスト10件。API仕様を `docs/api.md` に記載 |
 | 2026-10-24 | 本物のFirebaseで動作確認するスクリプト `scripts/smoke.mjs` を追加 |
 | 2026-10-24 | すれ違い交換(`reportExchange`、`getExchangeResult`、`cancelExchange`)を新規実装。テスト27件 |
+| 2026-10-24 | 音声会話 `talkToPet`(文字起こし、AI連携、声、回数制限)を新規実装。テスト54件。`scripts/talk.mjs` を追加 |

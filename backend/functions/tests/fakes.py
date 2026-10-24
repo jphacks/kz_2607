@@ -15,6 +15,9 @@ class FakeRef:
     def __init__(self, store, name, doc_id):
         self.store, self.name, self.id = store, name, doc_id
 
+    def collection(self, sub):
+        return FakeCollection(self.store, f"{self.name}/{self.id}/{sub}")
+
     def get(self, transaction=None):
         return FakeSnap(self.store.docs.get((self.name, self.id)))
 
@@ -57,10 +60,15 @@ class FakeTx:
     def update(self, ref, data):
         self.ops.append(("update", ref, data))
 
+    def set(self, ref, data):
+        self.ops.append(("set", ref, data))
+
     def commit(self):
         for kind, ref, data in self.ops:
             key = (ref.name, ref.id)
-            if kind == "create":
+            if kind == "set":
+                self.store.docs[key] = dict(data)
+            elif kind == "create":
                 assert key not in self.store.docs, f"already exists: {key}"
                 self.store.docs[key] = dict(data)
             else:
