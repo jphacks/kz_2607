@@ -21,6 +21,13 @@ Map<String, Object?> reply({
   'audioStatus': audioStatus,
   'petId': 'pet-1',
   'learnedWords': ['こんにちは'],
+  if (audioStatus == 'ok')
+    'replyAudio': {
+      'format': 'ima_adpcm',
+      'sampleRate': 16000,
+      'channels': 1,
+      'sampleCount': 8,
+    },
   if (audioStatus == 'ok') 'replyAudioBase64': base64Encode([82, 73, 70, 70]),
 };
 CloudFunctionsService api(
@@ -37,7 +44,7 @@ void main() {
         expect(data['deviceId'], 'core2-1');
         expect(data['petId'], 'pet-1');
         expect(data['wantAudio'], true);
-        expect(data['replyFormat'], 'wav');
+        expect(data['replyFormat'], 'ima_adpcm');
         final bytes = base64Decode(data['audioBase64'] as String);
         expect(String.fromCharCodes(bytes.sublist(0, 4)), 'RIFF');
         final header = ByteData.sublistView(bytes);
@@ -106,6 +113,92 @@ void main() {
     expect(cloud.connectionDeviceId, isNull);
     expect(calls, 0);
   });
+  test(
+    'received reply is automatically forwarded and busy remains true until Core2 ACK',
+    () async {
+      final done = Completer<void>();
+      var forwarded = false;
+      final cloud = VoiceCloudService(
+        api: api(
+          (name, data, _) async => name == 'registerDevice'
+              ? registration(data['deviceId'] as String)
+              : reply(audioStatus: 'ok'),
+        ),
+      );
+      addTearDown(cloud.dispose);
+      cloud.setConnection('AA:BB:CC:DD:EE:01');
+      cloud.sendReply = (bytes, count) {
+        expect(bytes.length, 4);
+        expect(count, 8);
+        forwarded = true;
+        return done.future;
+      };
+      await cloud.enable();
+      final sending = cloud.sendPcm(Uint8List(10));
+      await Future<void>.delayed(Duration.zero);
+      expect(forwarded, true);
+      expect(cloud.busy, true);
+      cloud.replyProgress(4, 4);
+      expect(cloud.replySentBytes, 4);
+      done.complete();
+      await sending;
+      expect(cloud.busy, false);
+      expect(cloud.replyTransferStatus, contains('受信完了ACK'));
+    },
+  );
+  test(
+    'Core2 transfer failure preserves text and does not repeat the cloud call',
+    () async {
+      var calls = 0;
+      final cloud = VoiceCloudService(
+        api: api((name, data, _) async {
+          if (name == 'registerDevice') {
+            return registration(data['deviceId'] as String);
+          }
+          calls++;
+          return reply(audioStatus: 'ok');
+        }),
+      );
+      addTearDown(cloud.dispose);
+      cloud.setConnection('AA:BB:CC:DD:EE:01');
+      cloud.sendReply = (_, _) async => throw StateError('ACK timeout');
+      await cloud.enable();
+      await cloud.sendPcm(Uint8List(10));
+      expect(cloud.replyText, 'やあ');
+      expect(calls, 1);
+      expect(cloud.replyTransferStatus, contains('失敗'));
+    },
+  );
+  test(
+    'disconnect during reply transfer cancels sender and discards completion',
+    () async {
+      final done = Completer<void>();
+      var cancelled = false;
+      final cloud = VoiceCloudService(
+        api: api(
+          (name, data, _) async => name == 'registerDevice'
+              ? registration(data['deviceId'] as String)
+              : reply(audioStatus: 'ok'),
+        ),
+      );
+      addTearDown(cloud.dispose);
+      cloud.setConnection('AA:BB:CC:DD:EE:01');
+      cloud.sendReply = (_, _) => done.future;
+      cloud.cancelReply = () {
+        cancelled = true;
+        done.completeError(StateError('closed'));
+      };
+      await cloud.enable();
+      final sending = cloud.sendPcm(Uint8List(10));
+      await Future<void>.delayed(Duration.zero);
+      cloud.setConnection(null);
+      await sending;
+      expect(cancelled, true);
+      expect(cloud.replyTransferStatus, isNull);
+      expect(cloud.replyText, isNull);
+      expect(cloud.enabled, false);
+    },
+  );
   test('invalid IDs and empty audio do not reach the server', () async {
     var calls = 0;
     final service = api((_, _, _) async {

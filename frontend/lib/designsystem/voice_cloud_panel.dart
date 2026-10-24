@@ -51,6 +51,18 @@ class VoiceCloudPanel extends StatelessWidget {
             SelectableText('返答: ${cloud.replyText}'),
           if (cloud.learnedWords.isNotEmpty)
             Text('覚えた言葉: ${cloud.learnedWords.join("、")}'),
+          if (cloud.connected && !cloud.canSendReply)
+            const Text('このCore2は返答音声の受信サービスに未対応です。'),
+          if (cloud.replyTransferStatus != null)
+            Text(cloud.replyTransferStatus!),
+          if (cloud.replyTotalBytes > 0) ...[
+            LinearProgressIndicator(
+              value: cloud.replySentBytes / cloud.replyTotalBytes,
+            ),
+            Text(
+              'Core2へ転送: ${cloud.replySentBytes} / ${cloud.replyTotalBytes} bytes',
+            ),
+          ],
           if (cloud.replyAudio != null)
             Text('返答音声: ${cloud.replyAudio!.length} bytes受信'),
         ],

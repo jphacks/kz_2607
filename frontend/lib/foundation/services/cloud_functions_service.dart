@@ -93,7 +93,7 @@ class CloudFunctionsService {
       'audioBase64': base64Encode(wav),
       'languageCode': 'ja-JP',
       'wantAudio': true,
-      'replyFormat': 'wav',
+      'replyFormat': 'ima_adpcm',
     }, const Duration(seconds: 130));
     // The deployed backend's no_speech response omits reply/audio fields.
     if (result is Map &&
