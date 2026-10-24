@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../foundation/app_colors.dart';
-import 'chappy_card.dart';
+import 'app_card.dart';
 
 class JourneyGauge extends StatelessWidget {
   const JourneyGauge({super.key, required this.value});
@@ -9,7 +9,7 @@ class JourneyGauge extends StatelessWidget {
   Widget build(BuildContext context) {
     final normalized = value.clamp(0.0, 1.0);
     final percent = (normalized * 100).round();
-    return ChappyCard(
+    return AppCard(
       color: AppColors.soft,
       padding: 16,
       child: Column(

@@ -10,10 +10,10 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await loadHomeFont();
-    await tester.pumpWidget(const ChappyApp());
+    await tester.pumpWidget(const MyApp());
     await tester.pumpAndSettle();
     await expectLater(
-      find.byType(ChappyApp),
+      find.byType(MyApp),
       matchesGoldenFile('home_preview.png'),
     );
   });

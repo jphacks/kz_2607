@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import '../foundation/app_colors.dart';
 
-class ChappyNavigation extends StatelessWidget {
-  const ChappyNavigation({super.key, required this.onSelected});
+class BottomNavigation extends StatelessWidget {
+  const BottomNavigation({
+    super.key,
+    required this.onSelected,
+    this.selectedIndex = 0,
+  });
   final ValueChanged<int> onSelected;
+  final int selectedIndex;
   static const labels = ['いま', '旅', '見守る', '手紙'];
   static const symbols = ['●', '⌁', '♡', '✉'];
   @override
@@ -18,7 +23,7 @@ class ChappyNavigation extends StatelessWidget {
           for (var i = 0; i < labels.length; i++)
             Expanded(
               child: Semantics(
-                selected: i == 0,
+                selected: i == selectedIndex,
                 child: InkWell(
                   onTap: () => onSelected(i),
                   borderRadius: BorderRadius.circular(16),
@@ -26,7 +31,7 @@ class ChappyNavigation extends StatelessWidget {
                     constraints: const BoxConstraints(minHeight: 48),
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     decoration: BoxDecoration(
-                      color: i == 0 ? AppColors.soft : null,
+                      color: i == selectedIndex ? AppColors.soft : null,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
@@ -38,7 +43,7 @@ class ChappyNavigation extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: i == 0
+                              color: i == selectedIndex
                                   ? AppColors.primary
                                   : AppColors.muted,
                             ),
@@ -48,7 +53,9 @@ class ChappyNavigation extends StatelessWidget {
                           labels[i],
                           style: TextStyle(
                             fontSize: 10,
-                            color: i == 0 ? AppColors.primary : AppColors.muted,
+                            color: i == selectedIndex
+                                ? AppColors.primary
+                                : AppColors.muted,
                           ),
                         ),
                       ],

@@ -8,6 +8,7 @@ Future<void> loadHomeFont() async {
   for (final entry in {
     'NotoSansJP': ['NotoSansJP-Regular.ttf', 'NotoSansJP-Bold.ttf'],
     'NotoSans': ['NotoSans-Regular.ttf'],
+    'NotoSansSymbols': ['NotoSansSymbols-Regular.ttf'],
     'NotoSansSymbols2': ['NotoSansSymbols2-Regular.ttf'],
   }.entries) {
     final loader = FontLoader(entry.key);
@@ -27,7 +28,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const ChappyApp());
+    await tester.pumpWidget(const MyApp());
     await tester.pumpAndSettle();
     expect(find.text('いま、一緒にいる子'), findsOneWidget);
     expect(find.text('ポポ'), findsOneWidget);
@@ -39,9 +40,8 @@ void main() {
   testWidgets('navigation opens and closes the corresponding information', (
     tester,
   ) async {
-    await tester.pumpWidget(const ChappyApp());
+    await tester.pumpWidget(const MyApp());
     for (final entry in {
-      '旅': '旅の履歴画面は準備中です。',
       '見守る': '旅立ったペットの見守り画面は準備中です。',
       '手紙': '届いた手紙を読む画面は準備中です。',
     }.entries) {
@@ -63,7 +63,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       tester.platformDispatcher.textScaleFactorTestValue = 2;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      await tester.pumpWidget(const ChappyApp());
+      await tester.pumpWidget(const MyApp());
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         find.text('確定した交換結果を見る'),

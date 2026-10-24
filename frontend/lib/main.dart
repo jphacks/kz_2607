@@ -2,18 +2,22 @@ import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'foundation/app_colors.dart';
 
-void main() => runApp(const ChappyApp());
+void main() => runApp(const MyApp());
 
-class ChappyApp extends StatelessWidget {
-  const ChappyApp({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'チャッピー',
+    title: 'kz_2607',
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       useMaterial3: true,
       fontFamily: 'NotoSansJP',
-      fontFamilyFallback: const ['NotoSans', 'NotoSansSymbols2'],
+      fontFamilyFallback: const [
+        'NotoSans',
+        'NotoSansSymbols',
+        'NotoSansSymbols2',
+      ],
       scaffoldBackgroundColor: AppColors.background,
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
@@ -23,7 +27,11 @@ class ChappyApp extends StatelessWidget {
       textTheme:
           ThemeData(
             fontFamily: 'NotoSansJP',
-            fontFamilyFallback: const ['NotoSans', 'NotoSansSymbols2'],
+            fontFamilyFallback: const [
+              'NotoSans',
+              'NotoSansSymbols',
+              'NotoSansSymbols2',
+            ],
           ).textTheme.apply(
             bodyColor: AppColors.text,
             displayColor: AppColors.text,
