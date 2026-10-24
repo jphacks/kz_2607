@@ -6,3 +6,4 @@ __pycache__/
 *.pem
 node_modules/
 firebase-debug.log
+*.wav
