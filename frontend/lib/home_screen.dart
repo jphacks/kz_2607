@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'core2_connection_screen.dart';
+import 'letters_screen.dart';
 import 'watch_screen.dart';
 import 'foundation/watch_pet.dart';
 import 'designsystem/action_button.dart';
@@ -261,6 +262,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: BottomNavigation(
                     onSelected: (index) {
                       if (index == 0) return;
+                      if (BottomNavigation.labels[index] == '手紙') {
+                        Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => const LettersScreen(),
+                          ),
+                        );
+                        return;
+                      }
                       if (index == 1) {
                         Navigator.of(context).push<void>(
                           MaterialPageRoute(

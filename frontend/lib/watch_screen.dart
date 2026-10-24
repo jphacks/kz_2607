@@ -6,7 +6,7 @@ import 'designsystem/pet_portrait.dart';
 import 'designsystem/watch_information_card.dart';
 import 'foundation/app_colors.dart';
 import 'foundation/watch_pet.dart';
-import 'designsystem/action_button.dart';
+import 'letters_screen.dart';
 
 class WatchScreen extends StatelessWidget {
   const WatchScreen({super.key, this.firstPet = WatchPet.firstCreatedSample});
@@ -165,35 +165,8 @@ class WatchScreen extends StatelessWidget {
                       Navigator.maybePop(context);
                       return;
                     }
-                    showModalBottomSheet<void>(
-                      context: context,
-                      showDragHandle: true,
-                      isScrollControlled: true,
-                      builder: (context) => SafeArea(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                '手紙',
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              const Text('届いた手紙を読む画面は準備中です。'),
-                              const SizedBox(height: 24),
-                              ActionButton(
-                                label: '閉じる',
-                                onPressed: () => Navigator.pop(context),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    Navigator.of(context).pushReplacement<void, void>(
+                      MaterialPageRoute(builder: (_) => const LettersScreen()),
                     );
                   },
                 ),

@@ -41,44 +41,17 @@ void main() {
       expect(find.byType(WatchScreen), findsNothing);
     },
   );
-  testWidgets('letters placeholder closes without replacing watch or home', (
-    tester,
-  ) async {
-    await tester.pumpWidget(const MyApp(home: HomeScreen()));
-    await tap(tester, '見守る');
-    await tap(tester, '手紙');
-    expect(find.text('届いた手紙を読む画面は準備中です。'), findsOneWidget);
-    expect(find.byType(BottomSheet), findsOneWidget);
-    expect(find.text('ミロからの手紙'), findsNothing);
-    expect(find.text('ポポからの手紙'), findsNothing);
-    await tap(tester, '閉じる');
-    expect(find.byType(WatchScreen), findsOneWidget);
-    await tap(tester, 'いま');
-    expect(find.byType(HomeScreen), findsOneWidget);
-    expect(find.byType(WatchScreen), findsNothing);
-  });
-  testWidgets('letters placeholder also opens from home', (tester) async {
-    await tester.pumpWidget(const MyApp(home: HomeScreen()));
-    await tap(tester, '手紙');
-    expect(find.text('届いた手紙を読む画面は準備中です。'), findsOneWidget);
-    expect(find.text('届いた手紙を読む画面は準備中です。'), findsOneWidget);
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(find.byType(HomeScreen), findsOneWidget);
-  });
-  testWidgets('unknown first pet stays empty across watch and letters tabs', (
+  testWidgets('unknown first pet stays empty on watch', (
     tester,
   ) async {
     await tester.pumpWidget(const MyApp(home: HomeScreen(firstPet: null)));
     await tap(tester, '見守る');
     expect(find.text('まだ最初の子の情報がありません'), findsOneWidget);
     expect(find.byType(PetPortrait), findsNothing);
-    await tap(tester, '手紙');
-    expect(find.text('届いた手紙を読む画面は準備中です。'), findsOneWidget);
-    expect(find.text('ミロからの手紙'), findsNothing);
+    expect(find.text('旅の履歴'), findsNothing);
   });
   testWidgets(
-    'large text watch and letters remain scrollable without overflow',
+    'large text watch remains scrollable without overflow',
     (tester) async {
       tester.view.physicalSize = const Size(320, 640);
       tester.view.devicePixelRatio = 1;
@@ -88,13 +61,11 @@ void main() {
       await tester.pumpWidget(const MyApp(home: HomeScreen()));
       await tap(tester, '見守る');
       await tester.scrollUntilVisible(
-        find.text('これまでの出会い'),
+        find.text('2代目からの思い出'),
         150,
         scrollable: find.byType(Scrollable).last,
       );
       await tester.pumpAndSettle();
-      await tap(tester, '手紙');
-      await tap(tester, '閉じる');
       await tap(tester, 'いま');
       expect(tester.takeException(), isNull);
     },
