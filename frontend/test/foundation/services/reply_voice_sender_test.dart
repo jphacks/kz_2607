@@ -11,7 +11,7 @@ void main() {
       final frames = <List<int>>[];
       final progress = <int>[];
       final metrics = <Map<String, Object?>>[];
-      final audio = Uint8List.fromList(List.generate(70, (i) => i));
+      final audio = Uint8List.fromList(List.generate(144, (i) => i));
       final sender = ReplyVoiceSender(
         onMetrics: metrics.add,
         acknowledgements: ack.stream,
@@ -19,33 +19,36 @@ void main() {
           frames.add(List.of(p));
           if (p[0] == 1) {
             expect(fast, false);
-            expect(p.sublist(2), [140, 0, 0, 0, 1, 16]);
+            expect(p.sublist(2), [32, 1, 0, 0, 1, 16]);
             ack.add([2, p[1], 0, 0]);
           }
           if (p[0] == 2) {
             expect(fast, true);
-            if (p[2] == 4 || p[2] == 5) ack.add([2, p[1], p[2], p[3]]);
+            if (p[2] == 4 || p[2] == 8 || p[2] == 9) {
+              ack.add([2, p[1], p[2], p[3]]);
+            }
           }
           if (p[0] == 3) {
             expect(fast, false);
-            ack.add([2, p[1], 6, 0]);
+            ack.add([2, p[1], 10, 0]);
           }
         },
       );
       await sender.send(
         bytes: audio,
-        sampleCount: 140,
+        sampleCount: 288,
         chunkSize: 16,
         cloudToSendUs: 1000,
         onProgress: (sent, _) => progress.add(sent),
       );
       expect(frames.first[0], 1);
-      expect(frames.last, [3, 1, 6, 0]);
+      expect(frames.last, [3, 1, 10, 0]);
       expect(
         frames.where((p) => p[0] == 2).expand((p) => p.skip(4)).toList(),
         audio,
       );
-      expect(progress, [0, 64, 70]);
+      expect(progress.first, 0);
+      expect(progress.last, 144);
       final result = metrics.single;
       expect(result['success'], true);
       expect(result['resentPackets'], 0);
@@ -84,7 +87,7 @@ void main() {
     expect(ends, 2);
     expect(sender.retryCount, 2);
     expect(metrics.single['success'], true);
-    expect(metrics.single['ackWindow'], 4);
+    expect(metrics.single['ackWindow'], 8);
     expect(metrics.single['packets'], 4);
     expect(metrics.single['dataWrites'], 8);
     expect(metrics.single['resentPackets'], 4);
