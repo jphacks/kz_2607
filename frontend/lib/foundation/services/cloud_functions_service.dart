@@ -59,6 +59,24 @@ class CloudFunctionsService {
     return result['petId'] as String;
   }
 
+  /// Exchange callables use the same Firebase session and region as voice calls.
+  Future<Map<String, dynamic>> callExchange(
+    String name,
+    Map<String, dynamic> arguments,
+  ) async {
+    if (!{'reportExchange', 'getExchangeResult', 'cancelExchange'}
+        .contains(name)) {
+      throw ArgumentError.value(name, 'name');
+    }
+    await _prepare();
+    final result = await _invoke(name, arguments,
+        const Duration(seconds: 30));
+    if (result is! Map) {
+      throw FormatException('$nameの応答が仕様と異なります');
+    }
+    return Map<String, dynamic>.from(result);
+  }
+
   Future<Map<String, dynamic>> talkToPet({
     required String deviceId,
     required String petId,
