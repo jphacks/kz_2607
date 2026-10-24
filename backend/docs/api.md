@@ -92,6 +92,7 @@
 | `languageCode` | `ja-JP`(既定)か `en-US` |
 | `petId` | 任意。渡すと、いまその端末のペットか確かめる(交換直後に古いペットへ話しかけるのを防ぐ) |
 | `wantAudio` | 既定 `true`。`false` なら、返事の声を作らない(文章だけ返す) |
+| `replyFormat` | 既定 `"wav"`。`"ima_adpcm"` にすると、Core2向けの形で返る(下の「Core2向けの声」) |
 
 返る
 ```
@@ -137,7 +138,6 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 `mode` を `"echo"` にすると、AIを呼ばず、聞いた言葉をそのまま返す(AIが用意できるまでの、動作確認用)。
 
 ## まだ対応していないこと
-- Core2向けの声の形式(16kHz・IMA-ADPCM)
 - 会話の履歴(AIに渡す、直前の会話)
 
 ## 言葉を覚える決まり
@@ -146,4 +146,11 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 - 次の言葉は、覚えない: URL、メールアドレス、4桁以上の数字、AIへの指示のように見えるもの、改行などの制御文字
 - いまの持ち主の、いまのペットだけが覚える。覚える処理に失敗しても、会話の返事は返す(`learnedWords` は空)
 - 覚えた言葉は、ペットの `learnedWords` と、履歴(`pets/{petId}/history`)に記録される
+
+## Core2向けの声(replyFormat: "ima_adpcm")
+- 返事の声が、**16kHz・モノラル・IMA-ADPCM**で返る。アプリは、`replyAudioBase64` をBase64から戻したバイト列を、そのまま、BLEでCore2に送ればよい
+- 形式は、Core2の録音と同じ。1サンプル4ビットで、**偶数番目のサンプルが下位4ビット**、奇数番目が上位4ビット。初期状態は、予測値0・ステップ番号0。WAVのヘッダーは付かない
+- `replyAudio` は `{ format: "ima_adpcm", sampleRate: 16000, channels: 1, sampleCount, durationSec }`
+- 24kHzから16kHzへの変換は、簡単な方法のため、声は聞き取れるが、WAVより音質が少し落ちる
+- 未確認: Core2側が、この形をそのまま再生できるか。最大の長さ(返事は200文字までで、十数秒になりうる)。組み込みに確認すること
 

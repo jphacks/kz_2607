@@ -30,7 +30,13 @@ await post(fn("registerDevice"), { data: { deviceId } }, token);
 const started = Date.now();
 const res = await post(
   fn("talkToPet"),
-  { data: { deviceId, audioBase64: fs.readFileSync(file).toString("base64") } },
+  {
+    data: {
+      deviceId,
+      audioBase64: fs.readFileSync(file).toString("base64"),
+      replyFormat: process.env.REPLY_FORMAT || "wav", // Core2向けは ima_adpcm
+    },
+  },
   token,
 );
 if (res.error) {
@@ -44,6 +50,8 @@ console.log("返事:", r.replyText);
 console.log("音声:", r.audioStatus);
 console.log("覚えた言葉:", JSON.stringify(r.learnedWords));
 if (r.replyAudioBase64) {
-  fs.writeFileSync("reply.wav", Buffer.from(r.replyAudioBase64, "base64"));
-  console.log("返事の声を reply.wav に保存しました");
+  const adpcm = r.replyAudio?.format === "ima_adpcm";
+  const name = adpcm ? "reply.adpcm" : "reply.wav";
+  fs.writeFileSync(name, Buffer.from(r.replyAudioBase64, "base64"));
+  console.log(`返事の声を ${name} に保存しました`, JSON.stringify(r.replyAudio));
 }
