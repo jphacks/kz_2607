@@ -13,7 +13,12 @@ talk_server.py — Cloud Functions から呼ばれる会話サーバー（受け
 
 ファイル（同じフォルダに置く。置き場所は judge_code/server・chat/talk/server・talk/server のどれでもよい。
           judge_infer.py は server と同じ位置の test_server/ に置く。teacher_data.py・判定の重みは上のフォルダから自動で探す）
-    talk_server.py        … これ。FastAPI・振り分け
+    talk_server.py        … これ。FastAPI で受け取って、順番に呼んで、返すだけ
+    talk_state.py         … 直前の会話（history）・同時に来たときの鍵・代が変わったら会話を消す
+    talk_models.py        … 起動時に作るモデルたち（Models・load_models）
+    talk_route.py         … 判定の決定を言葉で上書きする（迷い・込み入った質問・思い出・前のこと）
+    talk_reply.py         … 振り分けから返事を作る（make_reply）
+    talk_log.py           … 1行ログ
     common.py             … 共通（PetProfile・プロフィールの文・後片付け・性格の軸）
     judge_model.py        … 判定モデル JudgeModel
     chat_lora.py          … 雑談 ChatLoRA
@@ -38,91 +43,30 @@ talk_server.py — Cloud Functions から呼ばれる会話サーバー（受け
 """
 import os
 import random
-import threading
 import time
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from base_llm import BaseLLM
-from chat_lora import ChatLoRA
-from common import ENV_FILE, GENERATION_BASE, JUDGE_DIR, PET_NAME, TEACHER_DIR, TEACHER_ERR, PetProfile
-from complex_question import ComplexQuestion, force_complex
-from judge_model import JudgeModel
-from learn_words import WordLearner
-from memory import MemoryTalk, dont_know_reply as memory_dont_know, is_recall
-from pet_self import PET_SELF_PROMPT, PET_SELF_TEMP, PROFILE_IN_CHAT, PetSelf, chat_extra, question_kind, template
+from common import PET_NAME, TEACHER_DIR, TEACHER_ERR, PetProfile
+from pet_self import PET_SELF_PROMPT, PET_SELF_TEMP, PROFILE_IN_CHAT
+from talk_log import log_talk
+from talk_models import M, load_models
+from talk_reply import SAFE_REPLIES, make_reply
+from talk_route import adjust_action
+from talk_state import forget_if_new_generation, get_history, judge_lock, pet_lock, remember, reset as reset_state
 
 API_KEY = os.environ.get("TALK_API_KEY", "")
-KEEP_TURNS = 12       # ペットごとに覚えておく発言の数（メモリの中だけ）
-SAFE_REPLIES = [
-    "うーん、そのお話はちょっとむずかしいな。ほかのお話しよ？",
-    "それはよくわからないや。ねえ、今日はなにしてたの？",
-]
 
 app = FastAPI(title="pet talk server")
 pool = ThreadPoolExecutor(max_workers=8)    # 覚える言葉の抽出を返事の生成と同時に走らせる（同時に来た人の分も）
-# 同時に来たときの鍵（10/24 に分けた）
-#   judge_lock … 判定モデルだけ1件ずつ（キャッシュを同時に触らないため）。20〜45 ms で外れる
-#   ペットごとの鍵 … 同じペットに同時に来たときだけ順番にする（history が混ざらないように）
-#   返事の生成（8081・Haiku・8080）は鍵の外。Haiku の待ちでほかの人を止めない。8081 は llama-server が順番に処理する
-judge_lock = threading.Lock()
-_pet_locks: dict = {}
-_pet_locks_guard = threading.Lock()
-history = defaultdict(list)                 # petId → [{"speaker": "owner"|"pet", "text": ...}]
-
-
-def pet_lock(pet_id: str) -> threading.Lock:
-    with _pet_locks_guard:
-        if pet_id not in _pet_locks:
-            _pet_locks[pet_id] = threading.Lock()
-        return _pet_locks[pet_id]
-
-
-class Models:
-    """起動時に作るモデルたち。"""
-    judge: Optional[JudgeModel] = None
-    base = BaseLLM()
-    learner = WordLearner(base)
-    chat = ChatLoRA()
-    pet_self = PetSelf(chat)
-    complex = ComplexQuestion()
-    memory = MemoryTalk(chat)
-
-
-M = Models()
 
 
 @app.on_event("startup")
 def startup():
-    print(f"[startup] .env: {ENV_FILE or '見つからない（export した値を使う）'}")
-    t0 = time.time()
-    M.judge = JudgeModel()
-    print(f"[startup] judge ready ({time.time() - t0:.1f}s)  code: {JUDGE_DIR}  ckpts: {M.judge.ckpts}")
-    try:
-        M.base.ping()
-        print("[startup] llama-server（LoRA なし・8080）ok")
-    except Exception as e:
-        print(f"[startup] llama-server（LoRA なし・8080）NG: {e}")
-    M.chat.load()
-    t0 = time.time()
-    if M.memory.embedder.attach(getattr(M.judge, "runner", None)):
-        M.memory.embedder.lock = judge_lock          # 判定と同じ Ruri を使うので、判定と同じ鍵で順番にする
-    else:
-        M.memory.embedder.load()
-    print(f"[startup] 思い出: {M.memory.embedder.status}（{time.time() - t0:.1f}s）下限 {M.memory.embedder.min_sim}"
-          f"・温度 {M.memory.temperature}")
-    print(f"[startup] 性格LoRA（{M.chat.url}）{M.chat.status}")
-    print(f"[startup] ペット自身: 性格LoRA＋プロフィール（温度 {PET_SELF_TEMP}・プロンプト {PET_SELF_PROMPT}）・事実のチェック。"
-          f"雑談へのプロフィール: {'入れる' if PROFILE_IN_CHAT else '入れない'}（PROFILE_IN_CHAT）。"
-          f"generation は {GENERATION_BASE} から数える")
-    if M.complex.enabled:
-        print(f"[startup] 込み入った質問: Haiku（{M.complex.model}）。赤ちゃんの段階は決まった返事")
-    else:
-        print("[startup] 込み入った質問: ANTHROPIC_API_KEY が無いので 8080 で返す（赤ちゃんの段階は決まった返事）")
+    load_models()
 
 
 # ---------------------------------------------------------------- API の形
@@ -156,6 +100,7 @@ class TalkRequest(BaseModel):
     memories: Optional[List[Dict[str, Any]]] = None   # 今の飼い主との思い出（伏せ字入り・最近30件ほど）
     nameMap: Optional[Dict[str, Any]] = None          # 今の飼い主の伏せ字 → 本当の名前
     journeys: Optional[List[Dict[str, Any]]] = None   # 前の代との思い出（1代1件）
+    pastMemories: Optional[List[Dict[str, Any]]] = None  # 前の代の思い出（ぼかし済み。直前の代 最大7件＋1代目 最大3件）
 
 
 @app.get("/health")
@@ -182,50 +127,6 @@ def check_key(x_api_key: Optional[str]):
         raise HTTPException(401, f"X-Api-Key が一致しません — {hint}")
 
 
-# ---------------------------------------------------------------- 振り分け
-def make_reply(action: str, req: TalkRequest, profile: PetProfile, hist: List[dict], user_text: str,
-               learned, errors: List[str]):
-    """判定の結果から返事を作る。返り値: (返事, generator, persona)。失敗したら 8080 → 決まった返事へ。"""
-    if action == "思い出":
-        try:
-            return M.memory.reply(profile, hist, user_text, req.memories, req.nameMap, req.journeys)
-        except Exception as e:
-            errors.append(f"memory: {e}")
-            # 作り話を避けるため 8080 には回さず「覚えてない」
-            return memory_dont_know("current", profile), "memory-dontknow", {"stage": profile.stage,
-                                                                        "memory": {"check": "error"}}
-    if action == "雑談" and M.chat.ready:
-        try:
-            extra = chat_extra(profile)
-            reply, persona = M.chat.reply(profile, hist, user_text, extra=extra)
-            if reply:
-                return reply, "lfm2.5-lora-t04b", persona
-        except Exception as e:
-            errors.append(f"chat_lora: {e}")
-    if action == "ペット自身":
-        try:
-            return M.pet_self.reply(profile, hist, user_text)
-        except Exception as e:
-            errors.append(f"pet_self: {e}")
-            # 作り話を避けるため 8080 には回さず、プロフィールだけの決まった返事
-            kind = question_kind(user_text)
-            return M.pet_self._finish(template(kind, profile), profile), "self-template", {"stage": profile.stage,
-                                                               "self": {"kind": kind, "fact_check": "error"}}
-    if action == "込み入った質問":
-        try:
-            reply, persona, generator = M.complex.reply(profile, hist, user_text)
-            if reply:
-                return reply, generator, persona
-        except Exception as e:
-            errors.append(f"haiku: {e}")
-    # 上が使えないとき → LoRA なし（8080）
-    try:
-        return M.base.reply(hist, user_text, req.style, learned), "lfm2.5-base", None
-    except Exception as e:
-        errors.append(f"llm: {e}")
-        return "ちょっとぼーっとしてた。もう一回言って？", "fallback", None
-
-
 @app.post("/talk")
 def talk(req: TalkRequest, x_api_key: Optional[str] = Header(default=None)):
     check_key(x_api_key)
@@ -237,7 +138,8 @@ def talk(req: TalkRequest, x_api_key: Optional[str] = Header(default=None)):
         ms, errors = {"wait": 0.0, "judge": 0.0, "gen": 0.0, "learn": 0.0}, []
         user_text = req.text.strip()
 
-        hist = [t.model_dump() for t in req.history] if req.history is not None else history[req.petId]
+        forget_if_new_generation(req.petId, req.generation)
+        hist = get_history(req.petId, [t.model_dump() for t in req.history] if req.history is not None else None)
         profile = PetProfile.from_request(req)
 
         # 2. 判定
@@ -245,23 +147,7 @@ def talk(req: TalkRequest, x_api_key: Optional[str] = Header(default=None)):
         with judge_lock:
             ms["wait"] = (time.perf_counter() - t) * 1000          # 判定の順番待ち（同時に来たときだけ増える）
             j = M.judge(hist + [{"speaker": "owner", "text": user_text}])
-        # 判定モデルが拾えない最新の話題・深刻な悩みを、言葉で込み入った質問に回す（仮）
-        j["override"] = None
-        if j["action"] in ("雑談", "ペット自身", "思い出"):
-            why = force_complex(user_text)
-            if why:
-                j["override"] = f"{j['action']}→込み入った質問（{why}）"
-                j["action"] = "込み入った質問"
-        # 判定モデルは「前に話したこと」を雑談にしやすいので、言葉で思い出に回す（仮）
-        if j["action"] == "雑談":
-            why = is_recall(user_text)
-            if why:
-                j["override"] = f"雑談→思い出（{why}）"
-                j["action"] = "思い出"
-        # ペット自身の「前はどこにいたの？」は旅の記録で答える
-        if j["action"] == "ペット自身" and question_kind(user_text) == "past":
-            j["override"] = "ペット自身→思い出（前のこと）"
-            j["action"] = "思い出"
+        memory_or_chat, past_hint = adjust_action(j, user_text)
         ms["judge"] = (time.perf_counter() - t) * 1000
 
         # 3. 生成（＋覚える言葉の抽出を同時に）
@@ -281,7 +167,10 @@ def talk(req: TalkRequest, x_api_key: Optional[str] = Header(default=None)):
                     finally:
                         ms["learn"] = (time.perf_counter() - t1) * 1000
                 fut = pool.submit(_learn)
-            reply, generator, persona = make_reply(j["action"], req, profile, hist, user_text, learned, errors)
+            reply, generator, persona = make_reply(j["action"], req, profile, hist, user_text, learned, errors,
+                                                   memory_or_chat=memory_or_chat, past_hint=past_hint)
+            if memory_or_chat and not generator.startswith("memory"):
+                j["override"] = (j["override"] or "") + "→雑談（思い出が見つからない）"
             if fut is not None:
                 try:
                     learn_words = fut.result(timeout=30)
@@ -289,34 +178,12 @@ def talk(req: TalkRequest, x_api_key: Optional[str] = Header(default=None)):
                     errors.append(f"learn: {e}")
         ms["gen"] = (time.perf_counter() - t) * 1000
 
-        # 差し替えた返事もそのまま残る（作り話を history からくり返さないように、表に出した返事だけを覚える）
         if req.history is None:
-            history[req.petId] = (hist + [{"speaker": "owner", "text": user_text},
-                                          {"speaker": "pet", "text": reply}])[-KEEP_TURNS:]
+            remember(req.petId, hist, user_text, reply)
         ms["total"] = (time.perf_counter() - T0) * 1000
         pet_self = (persona or {}).get("self")
         mem = (persona or {}).get("memory")
-        p_log = ""
-        if persona:
-            p_log = f" {persona.get('scales') or persona.get('top2') or ''} 段階{persona.get('stage')}"
-            if persona.get("tokens"):
-                p_log += f" tokens{persona['tokens']}"
-        if pet_self:
-            p_log += f" 種類{pet_self.get('kind')} チェック{pet_self.get('fact_check')}"
-            if pet_self.get("reasons"):
-                p_log += f"{pet_self['reasons']} 元「{pet_self.get('original', '')}」"
-        if mem:
-            p_log += (f" 思い出{mem.get('kind')} {mem.get('date') or ''}選んだ{mem.get('picked') or mem.get('generation')}"
-                      f" 近さ{mem.get('scores', '')} チェック{mem.get('check')}")
-            if mem.get("reasons"):
-                p_log += f"{mem['reasons']} 元「{mem.get('original', '')}」"
-            if mem.get("why"):
-                p_log += f"（{mem['why']}）"
-        print(f"[talk] {time.strftime('%H:%M:%S')} pet={req.petId} | 飼い主「{user_text}」→ {profile.name}「{reply}」"
-              f" | {generator}{p_log} | 覚える{learn_words} | {j['action']}"
-              + (f"（{j['override']}）" if j.get("override") else "") + f" 危険{j['unsafe_prob']}"
-              f" | 判定{ms['judge']:.0f}ms（待ち{ms['wait']:.0f}） 生成{ms['gen']:.0f}ms 合計{ms['total']:.0f}ms"
-              + (f" | エラー {errors}" if errors else ""), flush=True)
+        log_talk(req.petId, user_text, profile.name, reply, generator, persona, learn_words, j, ms, errors)
 
     return {
         "user_text": user_text,
@@ -338,7 +205,7 @@ def talk(req: TalkRequest, x_api_key: Optional[str] = Header(default=None)):
 @app.post("/reset")
 def reset(petId: str = "demo", x_api_key: Optional[str] = Header(default=None)):
     check_key(x_api_key)
-    history.pop(petId, None)
+    reset_state(petId)
     return {"ok": True}
 
 
