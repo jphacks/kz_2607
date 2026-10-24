@@ -8,3 +8,5 @@ node_modules/
 firebase-debug.log
 *.wav
 *.adpcm
+!functions/.env
+.letters-test.json

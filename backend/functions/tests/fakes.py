@@ -21,10 +21,28 @@ class FakeRef:
     def get(self, transaction=None):
         return FakeSnap(self.store.docs.get((self.name, self.id)))
 
+    def set(self, data):
+        self.store.docs[(self.name, self.id)] = dict(data)
+
+    def update(self, data):
+        self.store.docs[(self.name, self.id)].update(data)
+
+    def delete(self):
+        self.store.docs.pop((self.name, self.id), None)
+
+
+class FakeDocSnap(FakeSnap):
+    def __init__(self, doc_id, data):
+        super().__init__(data)
+        self.id = doc_id
+
 
 class FakeCollection:
     def __init__(self, store, name):
         self.store, self.name = store, name
+
+    def stream(self):
+        return [FakeDocSnap(i, d) for (n, i), d in list(self.store.docs.items()) if n == self.name]
 
     def document(self, doc_id=None):
         if doc_id is None:

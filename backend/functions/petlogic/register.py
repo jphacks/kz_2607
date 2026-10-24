@@ -26,6 +26,8 @@ def validate_device_id(device_id):
 def new_pet(uid, now):
     return {
         "creatorUid": uid,
+        "ownerUid": uid,  # いまの持ち主。交換のたびに変わる
+        "generationStartedAt": now,  # いまの代が始まった日時
         "createdAt": now,
         "name": None,
         "personalityAxes": {name: 0.5 for name in AXIS_NAMES},
@@ -54,6 +56,11 @@ def register_device(db, uid, device_id, now):
     pet_ref = db.collection("pets").document()
     batch = db.batch()
     batch.create(pet_ref, new_pet(uid, now))
+    # 自分が最初に作ったペットの一覧(手紙を探すのに使う)
+    batch.create(
+        db.collection("users").document(uid).collection("createdPets").document(pet_ref.id),
+        {"createdAt": now},
+    )
     batch.create(
         device_ref,
         {"ownerUid": uid, "currentPetId": pet_ref.id, "createdAt": now},

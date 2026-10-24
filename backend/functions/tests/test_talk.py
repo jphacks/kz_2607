@@ -335,3 +335,11 @@ def test_talk_advances_gauge_and_no_speech_does_not():
     r = call(db, Fakes())
     assert r["gauge"] == pytest.approx(1 / 3)
     assert call(db, Fakes())["gauge"] == pytest.approx(2 / 3)
+
+
+def test_talk_saves_the_turn():
+    from petlogic.talklog import read_turns
+    db, pet = setup()
+    call(db, Fakes(transcript="こんにちは", reply="やあ！"))
+    assert read_turns(db, pet, 1)[0]["text"] == "こんにちは"
+    assert read_turns(db, pet, 1)[0]["reply"] == "やあ！"

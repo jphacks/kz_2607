@@ -126,8 +126,10 @@ def report_exchange(db, uid, data, now, run_tx=run_in_transaction):
         gen_given = given_snap.to_dict().get("generation", 1) + 1
         gen_got = got_snap.to_dict().get("generation", 1) + 1
         handoff_ref = db.collection("handoffs").document()
-        tx.update(given_ref, {"generation": gen_given, "points": 0.0, "gauge": 0.0})
-        tx.update(got_ref, {"generation": gen_got, "points": 0.0, "gauge": 0.0})
+        tx.update(given_ref, {"generation": gen_given, "points": 0.0, "gauge": 0.0,
+                              "ownerUid": peer.get("ownerUid"), "generationStartedAt": now})
+        tx.update(got_ref, {"generation": gen_got, "points": 0.0, "gauge": 0.0,
+                            "ownerUid": uid, "generationStartedAt": now})
         tx.update(my_ref, {"currentPetId": got, "lastHandoffId": handoff_ref.id})
         tx.update(peer_ref, {"currentPetId": given, "lastHandoffId": handoff_ref.id})
         record = {
@@ -140,7 +142,15 @@ def report_exchange(db, uid, data, now, run_tx=run_in_transaction):
             "rssi": rssi,
             "createdAt": now,
         }
-        tx.create(handoff_ref, record)
+        tx.create(
+            handoff_ref,
+            {
+                **record,
+                # 手放した時点で終わった代(要約の対象)
+                "endedGenerations": {given: gen_given - 1, got: gen_got - 1},
+                "summaryStatus": "pending",
+            },
+        )
         tx.create(
             ex_ref,
             {
