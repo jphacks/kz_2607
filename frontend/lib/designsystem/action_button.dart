@@ -4,7 +4,7 @@ import '../foundation/app_spacing.dart';
 class ActionButton extends StatelessWidget {
   const ActionButton({super.key, required this.label, required this.onPressed});
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   @override
   Widget build(BuildContext context) => SizedBox(
     width: double.infinity,

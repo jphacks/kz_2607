@@ -240,6 +240,9 @@ class Core2Ble extends ChangeNotifier {
         voiceStatus = '音声用特性がありません。Core2側の実装を確認してください';
         _log(voiceStatus);
       }
+      if (!_disposed && device == target && ready) {
+        voiceCloud.startForConnection(target.remoteId.str);
+      }
     } catch (e) {
       _log('接続失敗: $e');
       await disconnect();

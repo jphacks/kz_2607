@@ -6,18 +6,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 /// Callable functions use the signed-in Firebase user's token automatically.
-/// Region and authentication are shared by ping, registration and audio calls.
+/// Region and authentication are shared by registration and audio calls.
 class CloudFunctionsService {
   CloudFunctionsService({
     Future<void> Function()? prepare,
-    Future<Object?> Function()? invokePing,
     Future<Object?> Function(String, Map<String, Object?>, Duration)? invoke,
   }) : _prepare = prepare ?? _initializeAndAuthenticate,
-       _invokePing = invokePing ?? _callPing,
        _invoke = invoke ?? _call;
   static const region = 'asia-northeast1';
   final Future<void> Function() _prepare;
-  final Future<Object?> Function() _invokePing;
   final Future<Object?> Function(String, Map<String, Object?>, Duration)
   _invoke;
 
@@ -28,23 +25,6 @@ class CloudFunctionsService {
     if (auth.currentUser == null) await auth.signInAnonymously();
     if (auth.currentUser == null) {
       throw StateError('Firebaseにログインできませんでした');
-    }
-  }
-
-  static Future<Object?> _callPing() async {
-    final callable = FirebaseFunctions.instanceFor(region: region)
-        .httpsCallable(
-          'ping',
-          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
-        );
-    return (await callable.call<Object?>(<String, Object?>{})).data;
-  }
-
-  Future<void> ping() async {
-    await _prepare();
-    final result = await _invokePing();
-    if (result is! Map || result['ok'] != true) {
-      throw const FormatException('pingの応答が仕様と異なります（ok: true が必要です）');
     }
   }
 
