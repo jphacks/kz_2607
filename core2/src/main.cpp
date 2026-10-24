@@ -100,9 +100,48 @@ bool updateScreenMode() {
   return true;
 }
 
+void drawPlayCharacter() {
+  const uint16_t fur = M5.Display.color565(244, 166, 82);
+  const uint16_t innerEar = M5.Display.color565(247, 145, 151);
+  const uint16_t muzzle = M5.Display.color565(255, 239, 211);
+  const uint16_t shadow = M5.Display.color565(38, 40, 52);
+  const uint16_t face = M5.Display.color565(51, 41, 42);
+
+  // A temporary cat drawn directly on the Core2 display.
+  M5.Display.fillRoundRect(100, 214, 120, 9, 4, shadow);
+  M5.Display.fillCircle(209, 179, 21, fur);
+  M5.Display.fillCircle(221, 164, 16, fur);
+  M5.Display.fillCircle(220, 150, 12, fur);
+  M5.Display.fillCircle(160, 169, 45, fur);
+  M5.Display.fillCircle(160, 176, 29, muzzle);
+  M5.Display.fillRoundRect(119, 199, 34, 16, 8, fur);
+  M5.Display.fillRoundRect(167, 199, 34, 16, 8, fur);
+
+  M5.Display.fillTriangle(104, 76, 111, 24, 147, 56, fur);
+  M5.Display.fillTriangle(216, 76, 209, 24, 173, 56, fur);
+  M5.Display.fillTriangle(115, 64, 117, 39, 136, 58, innerEar);
+  M5.Display.fillTriangle(205, 64, 203, 39, 184, 58, innerEar);
+  M5.Display.fillCircle(160, 104, 60, fur);
+  M5.Display.fillCircle(142, 126, 19, muzzle);
+  M5.Display.fillCircle(178, 126, 19, muzzle);
+  M5.Display.fillCircle(138, 99, 6, face);
+  M5.Display.fillCircle(182, 99, 6, face);
+  M5.Display.fillCircle(140, 97, 2, TFT_WHITE);
+  M5.Display.fillCircle(184, 97, 2, TFT_WHITE);
+  M5.Display.fillTriangle(153, 123, 167, 123, 160, 132, innerEar);
+  M5.Display.drawLine(160, 132, 160, 139, face);
+  M5.Display.drawLine(160, 139, 154, 143, face);
+  M5.Display.drawLine(160, 139, 166, 143, face);
+  M5.Display.drawLine(129, 130, 105, 125, face);
+  M5.Display.drawLine(129, 137, 104, 140, face);
+  M5.Display.drawLine(191, 130, 215, 125, face);
+  M5.Display.drawLine(191, 137, 216, 140, face);
+}
+
 void drawScreen() {
   if (playMode) {
     M5.Display.fillScreen(TFT_BLACK);
+    drawPlayCharacter();
     drawModeButton();
     return;
   }
