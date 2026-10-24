@@ -3,67 +3,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from google.api_core.exceptions import AlreadyExists
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from fakes import FakeDb, FakeRef  # noqa: E402
 from petlogic.register import RegisterError, register_device  # noqa: E402
 
 NOW = datetime(2026, 10, 24, tzinfo=timezone.utc)
-
-
-class FakeSnap:
-    def __init__(self, data):
-        self._data = data
-        self.exists = data is not None
-
-    def to_dict(self):
-        return dict(self._data)
-
-
-class FakeRef:
-    def __init__(self, store, name, doc_id):
-        self.store, self.name, self.id = store, name, doc_id
-
-    def get(self):
-        return FakeSnap(self.store.docs.get((self.name, self.id)))
-
-
-class FakeCollection:
-    def __init__(self, store, name):
-        self.store, self.name = store, name
-
-    def document(self, doc_id=None):
-        if doc_id is None:
-            self.store.counter += 1
-            doc_id = f"auto{self.store.counter}"
-        return FakeRef(self.store, self.name, doc_id)
-
-
-class FakeBatch:
-    def __init__(self, store):
-        self.store, self.ops = store, []
-
-    def create(self, ref, data):
-        self.ops.append((ref, data))
-
-    def commit(self):
-        for ref, _ in self.ops:
-            if (ref.name, ref.id) in self.store.docs:
-                raise AlreadyExists("exists")
-        for ref, data in self.ops:
-            self.store.docs[(ref.name, ref.id)] = data
-
-
-class FakeDb:
-    def __init__(self):
-        self.docs, self.counter = {}, 0
-
-    def collection(self, name):
-        return FakeCollection(self, name)
-
-    def batch(self):
-        return FakeBatch(self)
 
 
 def test_first_call_creates_pet_and_device():
