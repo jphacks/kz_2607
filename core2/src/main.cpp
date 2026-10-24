@@ -17,6 +17,15 @@ constexpr char kServiceUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000001";
 constexpr char kStatusUuid[] = "7f5a0001-7b7d-4f3b-9d01-000000000002";
 constexpr unsigned long kPeerConnectionAgeMs = 6000;
 
+constexpr int kModeButtonX = 242;
+constexpr int kModeButtonY = 74;
+constexpr int kModeButtonWidth = 72;
+constexpr int kModeButtonHeight = 30;
+constexpr int kVolumeStep = 16;
+bool playMode = true;
+bool volumeVisible = false;
+unsigned long volumeShownAt = 0;
+
 volatile bool connected = false;
 volatile bool connectionChanged = true;
 uint16_t peerConnectionHandle = UINT16_MAX;
@@ -73,7 +82,107 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   }
 };
 
+void drawModeButton() {
+  M5.Display.fillRoundRect(kModeButtonX, kModeButtonY, kModeButtonWidth,
+                           kModeButtonHeight, 5, TFT_DARKGREY);
+  M5.Display.setTextColor(TFT_WHITE, TFT_DARKGREY);
+  M5.Display.setTextSize(1);
+  M5.Display.setCursor(kModeButtonX + (playMode ? 19 : 23), kModeButtonY + 11);
+  M5.Display.print(playMode ? "DEBUG" : "PLAY");
+}
+
+bool updateScreenMode() {
+  if (!M5.Touch.getCount()) return false;
+  const auto& touch = M5.Touch.getDetail();
+  if (!touch.wasPressed() || touch.x < kModeButtonX ||
+      touch.x >= kModeButtonX + kModeButtonWidth ||
+      touch.y < kModeButtonY || touch.y >= kModeButtonY + kModeButtonHeight) {
+    return false;
+  }
+  playMode = !playMode;
+  return true;
+}
+
+bool updateVolume() {
+  int delta = 0;
+  if (M5.BtnB.wasPressed()) delta -= kVolumeStep;
+  if (M5.BtnC.wasPressed()) delta += kVolumeStep;
+  if (delta == 0) return false;
+  voiceAdjustVolume(delta);
+  volumeVisible = playMode;
+  volumeShownAt = millis();
+  return true;
+}
+
+void drawPlayCharacter() {
+  const uint16_t fur = M5.Display.color565(244, 166, 82);
+  const uint16_t innerEar = M5.Display.color565(247, 145, 151);
+  const uint16_t muzzle = M5.Display.color565(255, 239, 211);
+  const uint16_t shadow = M5.Display.color565(38, 40, 52);
+  const uint16_t face = M5.Display.color565(51, 41, 42);
+
+  // A temporary cat drawn directly on the Core2 display.
+  M5.Display.fillRoundRect(100, 214, 120, 9, 4, shadow);
+  M5.Display.fillCircle(209, 179, 21, fur);
+  M5.Display.fillCircle(221, 164, 16, fur);
+  M5.Display.fillCircle(220, 150, 12, fur);
+  M5.Display.fillCircle(160, 169, 45, fur);
+  M5.Display.fillCircle(160, 176, 29, muzzle);
+  M5.Display.fillRoundRect(119, 199, 34, 16, 8, fur);
+  M5.Display.fillRoundRect(167, 199, 34, 16, 8, fur);
+
+  M5.Display.fillTriangle(104, 76, 111, 24, 147, 56, fur);
+  M5.Display.fillTriangle(216, 76, 209, 24, 173, 56, fur);
+  M5.Display.fillTriangle(115, 64, 117, 39, 136, 58, innerEar);
+  M5.Display.fillTriangle(205, 64, 203, 39, 184, 58, innerEar);
+  M5.Display.fillCircle(160, 104, 60, fur);
+  M5.Display.fillCircle(142, 126, 19, muzzle);
+  M5.Display.fillCircle(178, 126, 19, muzzle);
+  M5.Display.fillCircle(138, 99, 6, face);
+  M5.Display.fillCircle(182, 99, 6, face);
+  M5.Display.fillCircle(140, 97, 2, TFT_WHITE);
+  M5.Display.fillCircle(184, 97, 2, TFT_WHITE);
+  M5.Display.fillTriangle(153, 123, 167, 123, 160, 132, innerEar);
+  M5.Display.drawLine(160, 132, 160, 139, face);
+  M5.Display.drawLine(160, 139, 154, 143, face);
+  M5.Display.drawLine(160, 139, 166, 143, face);
+  M5.Display.drawLine(129, 130, 105, 125, face);
+  M5.Display.drawLine(129, 137, 104, 140, face);
+  M5.Display.drawLine(191, 130, 215, 125, face);
+  M5.Display.drawLine(191, 137, 216, 140, face);
+}
+
+void drawPlayRecordingIndicator() {
+  M5.Display.fillRect(0, M5.Display.height() - 5, M5.Display.width(), 5,
+                      voiceRecording() ? TFT_RED : TFT_BLACK);
+}
+
+void drawPlayVolumeOverlay() {
+  M5.Display.fillRect(4, 52, 72, 134, TFT_BLACK);
+  if (!volumeVisible) return;
+  M5.Display.drawRect(4, 52, 72, 134, TFT_DARKGREY);
+  M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+  M5.Display.setTextSize(1);
+  M5.Display.setCursor(26, 63);
+  M5.Display.print("VOL");
+  M5.Display.setCursor(24, 79);
+  M5.Display.printf("%u%%", (static_cast<unsigned>(voiceVolume()) * 100 + 127) / 255);
+  M5.Display.drawRect(29, 104, 22, 68, TFT_WHITE);
+  const int height = (static_cast<int>(voiceVolume()) * 64 + 127) / 255;
+  if (height > 0) {
+    M5.Display.fillRect(32, 169 - height, 16, height, TFT_GREEN);
+  }
+}
+
 void drawScreen() {
+  if (playMode) {
+    M5.Display.fillScreen(TFT_BLACK);
+    drawPlayCharacter();
+    drawModeButton();
+    drawPlayVolumeOverlay();
+    drawPlayRecordingIndicator();
+    return;
+  }
   M5.Display.fillScreen(TFT_NAVY);
   M5.Display.setTextColor(TFT_WHITE, TFT_NAVY);
   M5.Display.setTextSize(2);
@@ -157,6 +266,7 @@ void drawScreen() {
   }
   M5.Display.setCursor(16, 230);
   M5.Display.print("Hold A to talk");
+  drawModeButton();
 }
 
 void startBle() {
@@ -201,6 +311,9 @@ void setup() {
 
 void loop() {
   M5.update();
+  const bool modeChanged = updateScreenMode();
+  if (modeChanged && !playMode) volumeVisible = false;
+  const bool volumeChanged = updateVolume();
   voiceUpdate(connected && voiceTransferConfigured() && !replyReceiverBusy() &&
               !petConfigExchangePending());
   voiceTransferUpdate(connected);
@@ -221,6 +334,7 @@ void loop() {
   static unsigned long lastStatusRefresh = 0;
   static unsigned long lastStepStatusRefresh = 0;
   static unsigned long lastDraw = 0;
+  static bool lastPlayRecording = false;
   const uint32_t steps = stepCounterCount();
   stepCounterUpdate(!audioBusy);
   if (petConfigRevision() != lastPetNotifyRevision) {
@@ -250,14 +364,15 @@ void loop() {
       replyReceiverReset();
       petConfigReset();
     }
-    drawScreen();
+    if (!playMode || modeChanged) drawScreen();
     lastVoiceRevision = voiceRevision();
     lastReplyRevision = replyReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
     lastPetRevision = petConfigRevision();
     lastDrawStepCount = steps;
     lastDraw = millis();
-  } else if (((voiceRevision() != lastVoiceRevision ||
+  } else if (modeChanged ||
+             ((voiceRevision() != lastVoiceRevision ||
                replyReceiverRevision() != lastReplyRevision) &&
               ((!voiceRecording() && !replyReceiverReceiving()) ||
                millis() - lastDraw >= 200)) ||
@@ -266,13 +381,23 @@ void loop() {
               millis() - lastDraw >= 250) ||
               (steps != lastDrawStepCount && millis() - lastDraw >= 250) ||
              (!audioBusy && millis() - lastDraw >= 1000)) {
-    drawScreen();
+    if (!playMode || modeChanged) drawScreen();
     lastVoiceRevision = voiceRevision();
     lastReplyRevision = replyReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
     lastPetRevision = petConfigRevision();
     lastDrawStepCount = steps;
     lastDraw = millis();
+  }
+  if (playMode && voiceRecording() != lastPlayRecording) {
+    drawPlayRecordingIndicator();
+  }
+  lastPlayRecording = voiceRecording();
+  if (volumeVisible && millis() - volumeShownAt >= 1000) {
+    volumeVisible = false;
+    if (playMode) drawPlayVolumeOverlay();
+  } else if (playMode && volumeChanged) {
+    drawPlayVolumeOverlay();
   }
   delay(2);
 }
