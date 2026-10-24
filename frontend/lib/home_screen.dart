@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'core2_connection_screen.dart';
 import 'journey_screen.dart';
+import 'letters_screen.dart';
 import 'designsystem/action_button.dart';
 import 'designsystem/app_card.dart';
 import 'designsystem/bottom_navigation.dart';
@@ -259,6 +260,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: BottomNavigation(
                     onSelected: (index) {
                       if (index == 0) return;
+                      if (BottomNavigation.labels[index] == '手紙') {
+                        Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => const LettersScreen(),
+                          ),
+                        );
+                        return;
+                      }
                       if (index == 1) {
                         Navigator.of(context).push<void>(
                           MaterialPageRoute(

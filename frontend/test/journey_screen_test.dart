@@ -45,9 +45,9 @@ void main() {
       150,
       scrollable: find.byType(Scrollable).last,
     );
-    await tester.tap(find.text('手紙'));
+    await tester.tap(find.text('見守る'));
     await tester.pumpAndSettle();
-    expect(find.text('届いた手紙を読む画面は準備中です。'), findsOneWidget);
+    expect(find.text('旅立ったペットの見守り画面は準備中です。'), findsOneWidget);
     await tester.tap(find.text('閉じる'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('いま'));

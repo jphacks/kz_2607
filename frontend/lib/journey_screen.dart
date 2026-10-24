@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'letters_screen.dart';
 import 'designsystem/app_card.dart';
 import 'designsystem/action_button.dart';
 import 'designsystem/bottom_navigation.dart';
@@ -141,6 +142,14 @@ class JourneyScreen extends StatelessWidget {
                   selectedIndex: 1,
                   onSelected: (index) {
                     if (index == 1) return;
+                    if (BottomNavigation.labels[index] == '手紙') {
+                      Navigator.of(context).pushReplacement<void, void>(
+                        MaterialPageRoute(
+                          builder: (_) => const LettersScreen(),
+                        ),
+                      );
+                      return;
+                    }
                     if (index == 0) {
                       Navigator.pop(context);
                       return;

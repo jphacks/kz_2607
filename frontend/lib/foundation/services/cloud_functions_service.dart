@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'voice_transfer.dart';
+import '../models/pet_letter.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -40,6 +41,26 @@ class CloudFunctionsService {
             )
             .call<Object?>(data))
         .data;
+  }
+
+  Future<LettersInbox> getLetters() async {
+    await _prepare();
+    final result = await _invoke('getLetters', {}, const Duration(seconds: 30));
+    if (result is! Map ||
+        result['letters'] is! List ||
+        (result['firstPetId'] != null &&
+            (result['firstPetId'] is! String ||
+                (result['firstPetId'] as String).trim().isEmpty))) {
+      throw const FormatException('getLettersの応答が仕様と異なります');
+    }
+    final letters = (result['letters'] as List).map((item) {
+      if (item is! Map) throw const FormatException('手紙の形式が不正です');
+      return PetLetter.fromMap(item);
+    }).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return LettersInbox(
+      firstPetId: result['firstPetId'] as String?,
+      letters: letters,
+    );
   }
 
   Future<String> registerDevice(String deviceId) async {
