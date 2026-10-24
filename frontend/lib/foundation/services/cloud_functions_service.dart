@@ -47,6 +47,49 @@ class CloudFunctionsService {
         .data;
   }
 
+  Future<Map<String, dynamic>> _birthCall(
+    String name,
+    Map<String, Object?> data, {
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    await _prepare();
+    final result = await _invoke(name, data, timeout);
+    if (result is! Map) throw FormatException('$nameの応答が仕様と異なります');
+    return Map<String, dynamic>.from(result);
+  }
+
+  Future<Map<String, dynamic>> getPet(String deviceId) =>
+      _birthCall('getPet', {'deviceId': deviceId});
+
+  Future<Map<String, dynamic>> setInitialPersonality({
+    required String deviceId,
+    required List<int> answers,
+    required String requestId,
+  }) => _birthCall('setInitialPersonality', {
+    'deviceId': deviceId,
+    'answers': answers,
+    'questionnaireVersion': 'birth_v1_6q4',
+    'requestId': requestId,
+  });
+
+  Future<Map<String, dynamic>> generateBirthProfile(
+    String petId, {
+    bool regenerate = false,
+  }) => _birthCall('generateBirthProfile', {
+    'petId': petId,
+    'regenerate': regenerate,
+  }, timeout: const Duration(seconds: 25));
+
+  Future<Map<String, dynamic>> setPetName({
+    required String deviceId,
+    required String name,
+    required String firstPerson,
+  }) => _birthCall('setPetName', {
+    'deviceId': deviceId,
+    'name': name,
+    'firstPerson': firstPerson,
+  });
+
   Future<LettersInbox> getLetters() async {
     await _prepare();
     final result = await _invoke('getLetters', {}, const Duration(seconds: 30));
@@ -100,7 +143,11 @@ class CloudFunctionsService {
     };
     Object? result;
     try {
-      result = await _invoke('recordProgress', data, const Duration(seconds: 30));
+      result = await _invoke(
+        'recordProgress',
+        data,
+        const Duration(seconds: 30),
+      );
     } on FirebaseFunctionsException catch (error) {
       if (error.code != 'invalid-argument' ||
           !(error.message ?? '').contains('steps')) {
@@ -110,9 +157,7 @@ class CloudFunctionsService {
       // A direct callable request preserves this bounded value as a JSON int.
       result = await _progressFallback(data);
     }
-    if (result is! Map ||
-        result['status'] != 'ok' ||
-        result['date'] != date) {
+    if (result is! Map || result['status'] != 'ok' || result['date'] != date) {
       throw const FormatException('recordProgressの応答が仕様と異なります');
     }
   }
@@ -123,26 +168,38 @@ class CloudFunctionsService {
       throw StateError('歩数の送信にはFirebaseログインが必要です');
     }
     final projectId = Firebase.app().options.projectId;
-    final uri = Uri.https('$region-$projectId.cloudfunctions.net',
-        '/recordProgress');
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+    final uri = Uri.https(
+      '$region-$projectId.cloudfunctions.net',
+      '/recordProgress',
+    );
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
     try {
-      final request = await client.postUrl(uri).timeout(const Duration(seconds: 30));
+      final request = await client
+          .postUrl(uri)
+          .timeout(const Duration(seconds: 30));
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       final payload = utf8.encode(jsonEncode({'data': data}));
       request.contentLength = payload.length;
       request.add(payload);
-      final response = await request.close().timeout(const Duration(seconds: 30));
-      final body = await utf8.decoder.bind(response).join()
+      final response = await request.close().timeout(
+        const Duration(seconds: 30),
+      );
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
           .timeout(const Duration(seconds: 30));
       final decoded = jsonDecode(body);
-      if (decoded is! Map) throw const FormatException('recordProgressの応答が不正です');
+      if (decoded is! Map) {
+        throw const FormatException('recordProgressの応答が不正です');
+      }
       final error = decoded['error'];
       if (error is Map) {
         throw FirebaseFunctionsException(
           code: (error['status']?.toString() ?? 'unknown')
-              .toLowerCase().replaceAll('_', '-'),
+              .toLowerCase()
+              .replaceAll('_', '-'),
           message: error['message']?.toString() ?? '歩数の送信に失敗しました。',
           details: error['details'],
         );
@@ -158,13 +215,15 @@ class CloudFunctionsService {
     String name,
     Map<String, dynamic> arguments,
   ) async {
-    if (!{'reportExchange', 'getExchangeResult', 'cancelExchange'}
-        .contains(name)) {
+    if (!{
+      'reportExchange',
+      'getExchangeResult',
+      'cancelExchange',
+    }.contains(name)) {
       throw ArgumentError.value(name, 'name');
     }
     await _prepare();
-    final result = await _invoke(name, arguments,
-        const Duration(seconds: 30));
+    final result = await _invoke(name, arguments, const Duration(seconds: 30));
     if (result is! Map) {
       throw FormatException('$nameの応答が仕様と異なります');
     }

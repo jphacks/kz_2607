@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'birth_screen.dart';
 import 'core2_connection_screen.dart';
 import 'letters_screen.dart';
 import 'watch_screen.dart';
@@ -65,6 +66,36 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {});
     await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => Core2ConnectionPage(ble: _ble)),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openBirth() async {
+    if (_ble?.ready != true || _ble?.voiceCloud.petId == null) {
+      await _openConnection();
+    }
+    if (!mounted) return;
+    final cloud = _ble?.voiceCloud;
+    final deviceId = cloud?.deviceId;
+    final petId = cloud?.petId;
+    if (_ble?.ready != true || deviceId == null || petId == null) {
+      _showInfo(
+        'M5を先に登録してください',
+        'M5Stackを接続し、端末登録が完了してから「キャラクターを誕生させる」を押してください。',
+      );
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => BirthScreen(
+          deviceId: deviceId,
+          petId: petId,
+          canContinue: () =>
+              _ble?.ready == true &&
+              _ble?.voiceCloud.deviceId == deviceId &&
+              _ble?.voiceCloud.petId == petId,
+        ),
+      ),
     );
     if (mounted) setState(() {});
   }
@@ -243,6 +274,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             ? '接続済み · M5Stack / 設定'
                             : '未接続 · M5Stackにつなぐ',
                         onPressed: _openConnection,
+                      ),
+                      const SizedBox(height: 12),
+                      ActionButton(
+                        label: 'キャラクターを誕生させる・続きから',
+                        onPressed: _openBirth,
                       ),
                       const SizedBox(height: 12),
                       ActionButton(
