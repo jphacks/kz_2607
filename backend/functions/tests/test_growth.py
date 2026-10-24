@@ -83,3 +83,13 @@ def test_exchange_gate_off_by_default_and_on_by_config():
     assert swap(db, a, b)["status"] == "done"
     db2, a2, b2 = setup()
     assert swap(db2, a2, b2)["status"] == "done"  # 設定なし → 求めない
+
+
+def test_exchange_records_new_owner_and_generation_start():
+    db, a, b = setup()
+    later = datetime(2026, 10, 25, tzinfo=timezone.utc)
+    report_exchange(db, "u1", {"myDeviceId": "devA", "peerDeviceId": "devB", "givenPetId": a,
+                               "gotPetId": b, "transactionId": "t9"}, later, run_tx=run_tx)
+    assert db.docs[("pets", a)]["ownerUid"] == "u2" and db.docs[("pets", b)]["ownerUid"] == "u1"
+    assert db.docs[("pets", a)]["creatorUid"] == "u1"  # 最初に作った人は変わらない
+    assert db.docs[("pets", a)]["generationStartedAt"] == later

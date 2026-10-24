@@ -34,6 +34,53 @@
 - `permission-denied`: 自分の端末ではない
 - `unauthenticated`: ログインしていない
 
+## registerPushToken
+通知トークンを登録する。ログイン後、アプリ起動時に1回、トークンが変わったときにも呼ぶ。何度呼んでも同じ。
+
+| 項目 | 内容 |
+| --- | --- |
+| 送る | `token`: Firebase Messaging のトークン(20〜4096文字)、`platform`: `android` か `ios`(省略は `android`) |
+| 返る | `{ "status": "ok" }` |
+
+エラー: `invalid-argument`(token の形が違う)、`unauthenticated`。1人が複数の端末を使っていても、全部に届く。
+
+## getLetters
+自分が**最初に作った**ペットから届いた手紙を、新しい順に返す(最大30通)。ホーム画面や手紙の画面を開くときに呼ぶ。
+
+| 項目 | 内容 |
+| --- | --- |
+| 送る | なし |
+| 返る | `{ "letters": [ { letterId, petId, petName, title, body, generation, createdAt } ] }` |
+
+- `createdAt` は、ISO形式の文字列。`petName` は未設定なら `null`
+- 手紙は、まだなければ空の配列
+- 通知をタップしたとき: 通知の `data` に `type: "letter"`、`petId`、`letterId` が入っている。`getLetters` の結果から、その `letterId` を探して表示する
+
+## 手紙のしくみ
+- 毎朝9時(日本時間)に、サーバーが全ペットを調べる(`sendLettersDaily`)
+- 手紙が出るのは、次の3つが全部そろったペット
+  1. 1回以上手放されている(1代目ではない)
+  2. いまの持ち主が、最初に作った人ではない
+  3. 「前回の手紙」または「いまの代が始まった日」のうち新しいほうから、14日以上たっている
+- 宛先は、最初に作った人だけ。同じ日に、二重には作らない
+- 本文は、OpenAI が、手放されたあとの代の会話の要約をもとに書く。失敗したら、定型の文になる。いまの飼い主の名前などは入らない
+- 手紙ができると、宛先のユーザーにプッシュ通知が届く
+- 間隔は、Firestore の `config/game` の `letterIntervalDays` で変えられる(0にすると、すぐ出る。デモ用)。再デプロイは要らない
+- 朝9時を待たずに動かすには、Google Cloud コンソールの Cloud Scheduler で `sendLettersDaily` を「強制実行」する
+
+## syncUser
+ログイン中のユーザーの情報(メールアドレスなど)を、Firestore の `users/{uid}` に記録する。**ログイン直後と、メールアドレスを登録(紐づけ)した直後**に呼ぶ。何度呼んでもよい。
+
+| 項目 | 内容 |
+| --- | --- |
+| 送る | なし |
+| 返る | `{ "status": "ok", "email": メールアドレス(匿名はnull), "isAnonymous": true/false }` |
+
+- 記録する内容: `uid`、`email`、`signInProvider`(`anonymous` / `password` など)、`isAnonymous`、`emailVerified`、`createdAt`、`lastSeenAt`
+- メールアドレスは、アプリが送った値ではなく、**ログインのトークン**から読む。匿名ユーザーにメールを紐づけた(`linkWithCredential`)あとは、`await user.getIdToken(true)` でトークンを更新してから呼ぶこと(更新しないと、メールが反映されない)
+- `registerDevice` でも、裏で同じ記録をする(`syncUser` を忘れても、`users/{uid}` はできる)
+- UID は、匿名からメールに紐づけても変わらない
+
 ## ping
 動作確認用。`{ "ok": true }` を返す。
 
@@ -100,6 +147,12 @@
 - 声が聞き取れなかったとき(`no_speech`)は、数えない
 - `talkToPet` の戻り値に `gauge` が入る。`getPet` でも読める
 - 交換が確定すると、2匹のゲージは0に戻る(新しい飼い主のもとで、貯め直す)
+
+## サーバーが記録するもの(手紙の準備)
+- 会話(`talkToPet` が成功したとき)の文と返事を、代ごとに直近50件まで、ペットに記録する。手紙のための要約に使う。アプリからは読めない
+- 交換が確定したとき、ペットに「いまの持ち主」と「この代が始まった日時」を記録する
+- 交換が確定すると、サーバーが裏で、手放したペットの「終わった代」の会話を OpenAI で要約して取っておく(`summarizeHandoff`)。交換の返事は待たせない。要約に失敗しても、交換は取り消さない
+- アプリが、何かを送る必要はない
 
 ## ゲージの条件(サーバーの設定)
 Firestore の `config/game` の `requireFullGauge` を `true` にすると、ゲージが満タン(1.0)でない2匹の交換を、`failed-precondition`(`reason: "pet_not_ready"`、`details.petIds` に満タンでないペット)で断る。**既定はオフ**(設定がなければ、ゲージに関係なく交換できる)。切り替えに再デプロイは要らない。
