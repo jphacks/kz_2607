@@ -8,3 +8,4 @@
 | --- | --- |
 | 2026-10-24 | 土台を作成(Firebase設定、Firestoreルール、動作確認用の関数 `ping`) |
 | 2026-10-24 | 新しいFirebaseプロジェクト `pet-handoff-hack` を作成(Blaze、Firestore 東京、匿名ログイン) |
+| 2026-10-24 | `registerDevice` を新規実装(端末登録とペット作成)。テスト10件。API仕様を `docs/api.md` に記載 |
