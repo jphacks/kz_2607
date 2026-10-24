@@ -13,6 +13,8 @@ bool voicePlayingReply();
 bool voiceStartReplyStream();
 bool voiceQueueReplySamples(const int16_t* samples, size_t count);
 void voiceFinishReplyStream();
+void voiceAdjustVolume(int delta);
+uint8_t voiceVolume();
 size_t voiceSampleCount();
 size_t voiceEncodedSize();
 const uint8_t* voiceEncodedData();

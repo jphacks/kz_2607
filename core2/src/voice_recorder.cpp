@@ -19,6 +19,7 @@ size_t sampleCount = 0;
 size_t queuedSamples = 0;
 bool wasPressed = false;
 bool replyStreamActive = false;
+uint8_t replyVolume = 128;
 uint32_t revision = 0;
 const char* message = "Hold A to record (max 5s)";
 
@@ -192,7 +193,7 @@ bool voiceStartReplyStream() {
   if (!voiceCanPlayReply()) return false;
   M5.Mic.end();
   if (!M5.Speaker.begin()) return false;
-  M5.Speaker.setVolume(128);
+  M5.Speaker.setVolume(replyVolume);
   replyStreamActive = true;
   setState(State::PlayingReply, "Playing reply...");
   return true;
@@ -205,6 +206,12 @@ bool voiceQueueReplySamples(const int16_t* samples, size_t count) {
   return M5.Speaker.playRaw(samples, count, kSampleRate, false, 1, 0);
 }
 void voiceFinishReplyStream() { replyStreamActive = false; }
+void voiceAdjustVolume(int delta) {
+  replyVolume = static_cast<uint8_t>(
+      constrain(static_cast<int>(replyVolume) + delta, 0, 255));
+  if (state == State::PlayingReply) M5.Speaker.setVolume(replyVolume);
+}
+uint8_t voiceVolume() { return replyVolume; }
 size_t voiceSampleCount() { return sampleCount; }
 size_t voiceEncodedSize() { return (sampleCount + 1) / 2; }
 const uint8_t* voiceEncodedData() { return encoded; }

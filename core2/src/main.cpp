@@ -21,7 +21,10 @@ constexpr int kModeButtonX = 242;
 constexpr int kModeButtonY = 74;
 constexpr int kModeButtonWidth = 72;
 constexpr int kModeButtonHeight = 30;
+constexpr int kVolumeStep = 16;
 bool playMode = true;
+bool volumeVisible = false;
+unsigned long volumeShownAt = 0;
 
 volatile bool connected = false;
 volatile bool connectionChanged = true;
@@ -100,6 +103,17 @@ bool updateScreenMode() {
   return true;
 }
 
+bool updateVolume() {
+  int delta = 0;
+  if (M5.BtnB.wasPressed()) delta -= kVolumeStep;
+  if (M5.BtnC.wasPressed()) delta += kVolumeStep;
+  if (delta == 0) return false;
+  voiceAdjustVolume(delta);
+  volumeVisible = playMode;
+  volumeShownAt = millis();
+  return true;
+}
+
 void drawPlayCharacter() {
   const uint16_t fur = M5.Display.color565(244, 166, 82);
   const uint16_t innerEar = M5.Display.color565(247, 145, 151);
@@ -143,11 +157,29 @@ void drawPlayRecordingIndicator() {
                       voiceRecording() ? TFT_RED : TFT_BLACK);
 }
 
+void drawPlayVolumeOverlay() {
+  M5.Display.fillRect(4, 52, 72, 134, TFT_BLACK);
+  if (!volumeVisible) return;
+  M5.Display.drawRect(4, 52, 72, 134, TFT_DARKGREY);
+  M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+  M5.Display.setTextSize(1);
+  M5.Display.setCursor(26, 63);
+  M5.Display.print("VOL");
+  M5.Display.setCursor(24, 79);
+  M5.Display.printf("%u%%", (static_cast<unsigned>(voiceVolume()) * 100 + 127) / 255);
+  M5.Display.drawRect(29, 104, 22, 68, TFT_WHITE);
+  const int height = (static_cast<int>(voiceVolume()) * 64 + 127) / 255;
+  if (height > 0) {
+    M5.Display.fillRect(32, 169 - height, 16, height, TFT_GREEN);
+  }
+}
+
 void drawScreen() {
   if (playMode) {
     M5.Display.fillScreen(TFT_BLACK);
     drawPlayCharacter();
     drawModeButton();
+    drawPlayVolumeOverlay();
     drawPlayRecordingIndicator();
     return;
   }
@@ -280,6 +312,8 @@ void setup() {
 void loop() {
   M5.update();
   const bool modeChanged = updateScreenMode();
+  if (modeChanged && !playMode) volumeVisible = false;
+  const bool volumeChanged = updateVolume();
   voiceUpdate(connected && voiceTransferConfigured() && !replyReceiverBusy() &&
               !petConfigExchangePending());
   voiceTransferUpdate(connected);
@@ -359,5 +393,11 @@ void loop() {
     drawPlayRecordingIndicator();
   }
   lastPlayRecording = voiceRecording();
+  if (volumeVisible && millis() - volumeShownAt >= 1000) {
+    volumeVisible = false;
+    if (playMode) drawPlayVolumeOverlay();
+  } else if (playMode && volumeChanged) {
+    drawPlayVolumeOverlay();
+  }
   delay(2);
 }
