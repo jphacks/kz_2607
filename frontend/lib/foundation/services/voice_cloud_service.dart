@@ -13,6 +13,12 @@ class VoiceCloudService extends ChangeNotifier {
   String status = '音声送信は無効です';
   String? transcript, replyText;
   Uint8List? replyAudio;
+  Future<void> Function(Uint8List bytes, int sampleCount)? sendReply;
+  void Function()? cancelReply;
+  bool _transferringReply = false;
+  String? replyTransferStatus;
+  int replySentBytes = 0, replyTotalBytes = 0;
+  bool get canSendReply => sendReply != null;
   List<String> learnedWords = [];
   bool _busy = false, _disposed = false;
   int _epoch = 0;
@@ -40,6 +46,9 @@ class VoiceCloudService extends ChangeNotifier {
 
   void disable() {
     _epoch++;
+    if (_transferringReply) cancelReply?.call();
+    replyTransferStatus = null;
+    replySentBytes = replyTotalBytes = 0;
     deviceId = petId = null;
     transcript = replyText = null;
     replyAudio = null;
@@ -85,6 +94,8 @@ class VoiceCloudService extends ChangeNotifier {
     transcript = replyText = null;
     replyAudio = null;
     learnedWords = [];
+    replyTransferStatus = null;
+    replySentBytes = replyTotalBytes = 0;
     status = 'talkToPet：音声送信・返答待ち…（送信中の新しい録音は送信しません）';
     _publish();
     try {
@@ -103,7 +114,36 @@ class VoiceCloudService extends ChangeNotifier {
         }
         replyAudio = base64Decode(audio);
         if (replyAudio!.isEmpty) throw const FormatException('返答音声が空です');
-        status = '返答文と音声を受信しました（Core2への返答音声転送は未実装）';
+        status = '返答文と音声を受信しました';
+        final meta = result['replyAudio'];
+        if (meta is! Map ||
+            meta['format'] != 'ima_adpcm' ||
+            meta['sampleRate'] != 16000 ||
+            meta['channels'] != 1 ||
+            meta['sampleCount'] is! int ||
+            (meta['sampleCount'] as int) < 1 ||
+            (meta['sampleCount'] as int) > 480000 ||
+            replyAudio!.length != ((meta['sampleCount'] as int) + 1) ~/ 2) {
+          throw const FormatException('Core2向け返答音声の形式・データ長が不正です');
+        }
+        final sender = sendReply;
+        if (sender == null) {
+          replyTransferStatus = 'Core2側に返答音声の受信サービスがありません';
+        } else {
+          _transferringReply = true;
+          replyTransferStatus = 'Core2へ返答音声を転送中…';
+          _publish();
+          try {
+            await sender(replyAudio!, meta['sampleCount'] as int);
+            if (_disposed || epoch != _epoch) return;
+            replyTransferStatus = 'Core2の音声受信完了ACKを確認しました';
+          } catch (e) {
+            if (_disposed || epoch != _epoch) return;
+            replyTransferStatus = 'Core2への返答音声転送に失敗: $e';
+          } finally {
+            _transferringReply = false;
+          }
+        }
       } else {
         status = result['audioStatus'] == 'failed'
             ? '返答文を受信しました。返答音声の生成には失敗しました'
@@ -126,6 +166,13 @@ class VoiceCloudService extends ChangeNotifier {
     }
   }
 
+  void replyProgress(int sent, int total) {
+    if (_disposed || !_transferringReply) return;
+    replySentBytes = sent;
+    replyTotalBytes = total;
+    _publish();
+  }
+
   String _error(String function, Object error, {String? attemptedId}) {
     if (error is FirebaseFunctionsException) {
       final details = error.details;
@@ -143,6 +190,7 @@ class VoiceCloudService extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _epoch++;
+    if (_transferringReply) cancelReply?.call();
     super.dispose();
   }
 }

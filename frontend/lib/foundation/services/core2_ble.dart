@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'voice_link.dart';
 import 'voice_cloud_service.dart';
+import 'reply_voice_sender.dart';
 import 'voice_transfer.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -15,6 +16,9 @@ class Core2Ble extends ChangeNotifier {
   static final voiceControlId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000006');
   final voiceCloud = VoiceCloudService();
   VoiceLink? _voice;
+  ReplyVoiceSender? _reply;
+  static final replyDataId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000007');
+  static final replyAckId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000008');
   BluetoothCharacteristic? _voiceData, _voiceControl;
   bool voiceStarting = false;
   bool voiceListening = false;
@@ -148,10 +152,16 @@ class Core2Ble extends ChangeNotifier {
         }
       });
       final services = await target.discoverServices();
-      BluetoothCharacteristic? characteristic;
+      BluetoothCharacteristic? characteristic, replyData, replyAck;
       for (final service in services) {
         if (service.uuid != serviceId) continue;
         for (final value in service.characteristics) {
+          if (value.uuid == replyDataId && value.properties.write) {
+            replyData = value;
+          }
+          if (value.uuid == replyAckId && value.properties.notify) {
+            replyAck = value;
+          }
           if (value.uuid == statusId) characteristic = value;
           if (value.uuid == voiceDataId && value.properties.notify) {
             _voiceData = value;
@@ -180,6 +190,49 @@ class Core2Ble extends ChangeNotifier {
       status = '接続済み・受信待ち';
       voiceCloud.setConnection(target.remoteId.str);
       _log('Notify購読開始');
+      if (replyData != null && replyAck != null) {
+        final data = replyData;
+        final generation = _audioGeneration;
+        final sender = ReplyVoiceSender(
+          write: (bytes, withoutResponse) => data.write(
+            bytes,
+            withoutResponse:
+                withoutResponse && data.properties.writeWithoutResponse,
+          ),
+          acknowledgements: replyAck.onValueReceived,
+        );
+        _reply = sender;
+        try {
+          await replyAck.setNotifyValue(true);
+          if (_disposed || generation != _audioGeneration || device != target) {
+            await sender.close();
+            throw StateError('返答音声の準備中に切断されました');
+          }
+          voiceCloud.cancelReply = () {
+            unawaited(sender.close());
+          };
+          voiceCloud.sendReply = (bytes, count) async {
+            if (_disposed ||
+                generation != _audioGeneration ||
+                device != target) {
+              throw StateError('Core2との接続が変わりました');
+            }
+            final chunk = (target.mtuNow - 7).clamp(1, 240);
+            await sender.send(
+              bytes: bytes,
+              sampleCount: count,
+              chunkSize: chunk,
+              onProgress: voiceCloud.replyProgress,
+            );
+          };
+        } catch (e) {
+          await sender.close();
+          _reply = null;
+          _log('返答音声転送を準備できません: $e');
+        }
+      } else {
+        _log('返答音声の受信サービスがありません。Core2側の対応が必要です');
+      }
       if (canReceiveVoice) {
         // Match the prototype: subscribe to voice automatically after BLE setup.
         await startVoice();
@@ -198,6 +251,11 @@ class Core2Ble extends ChangeNotifier {
   }
 
   void _resetVoice() {
+    voiceCloud.sendReply = null;
+    voiceCloud.cancelReply = null;
+    final reply = _reply;
+    _reply = null;
+    unawaited(reply?.close());
     if (!_disposed) voiceCloud.setConnection(null);
     final previous = _voice;
     _voice = null;
