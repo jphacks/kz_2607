@@ -80,6 +80,24 @@ class CloudFunctionsService {
     return result['petId'] as String;
   }
 
+  Future<void> recordProgress({
+    required String deviceId,
+    required String date,
+    required int steps,
+  }) async {
+    await _prepare();
+    final result = await _invoke('recordProgress', {
+      'deviceId': deviceId,
+      'date': date,
+      'steps': steps,
+    }, const Duration(seconds: 30));
+    if (result is! Map ||
+        result['status'] != 'ok' ||
+        result['date'] != date) {
+      throw const FormatException('recordProgressの応答が仕様と異なります');
+    }
+  }
+
   /// Exchange callables use the same Firebase session and region as voice calls.
   Future<Map<String, dynamic>> callExchange(
     String name,
