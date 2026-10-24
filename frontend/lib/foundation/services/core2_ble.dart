@@ -7,6 +7,7 @@ import 'reply_voice_sender.dart';
 import 'voice_transfer_metrics.dart';
 import 'voice_transfer.dart';
 import 'pet_config_transport.dart';
+import 'step_progress_sync.dart';
 import '../controllers/exchange_controller.dart';
 import '../models/pending_exchange.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -38,6 +39,11 @@ class Core2Ble extends ChangeNotifier {
   VoiceLink? _voice;
   ReplyVoiceSender? _reply;
   PetConfigTransport? _petConfig;
+  final StepProgressSync _stepProgress = StepProgressSync();
+  Timer? _stepSyncTimer;
+  String? _stepStatusDeviceId;
+  int? _stepStatusCount;
+  String? _lastStepObservation;
   ExchangeController? exchange;
   String? _exchangeUid;
   String get exchangeStatus => exchange?.message ?? '交換候補はまだ届いていません';
@@ -116,6 +122,36 @@ class Core2Ble extends ChangeNotifier {
   void _onVoiceCloudChanged() {
     _refresh();
     unawaited(_syncPetId());
+    _observeSteps();
+  }
+
+  void _observeSteps() {
+    final id = voiceCloud.deviceId;
+    final petId = voiceCloud.petId;
+    final count = _stepStatusCount;
+    if (!ready || id == null || petId == null ||
+        count == null || _stepStatusDeviceId != 'M5-$id') return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final observation = '$uid:$id:$petId:$count';
+    if (_lastStepObservation == observation) return;
+    _lastStepObservation = observation;
+    unawaited(_stepProgress.observe(
+      uid: uid, deviceId: id, petId: petId, cumulative: count,
+    ).catchError((Object error) {
+      if (_lastStepObservation == observation) _lastStepObservation = null;
+      _log('歩数の同期に失敗: $error');
+    }));
+  }
+
+  void _flushSteps() {
+    final id = voiceCloud.deviceId;
+    final petId = voiceCloud.petId;
+    if (!ready || id == null || petId == null) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    unawaited(_stepProgress.flush(uid: uid, deviceId: id, petId: petId)
+        .catchError((Object error) => _log('歩数の送信に失敗: $error')));
   }
 
   Future<void> _syncPetId() async {
@@ -329,6 +365,17 @@ class Core2Ble extends ChangeNotifier {
       await _values?.cancel();
       _values = characteristic.onValueReceived.listen((bytes) {
         if (_petConfig?.receive(bytes) ?? false) return;
+        try {
+          final data = jsonDecode(utf8.decode(bytes));
+          if (data is Map && data['id'] is String &&
+              data['stepCount'] is int && (data['stepCount'] as int) >= 0) {
+            _stepStatusDeviceId = data['id'] as String;
+            _stepStatusCount = data['stepCount'] as int;
+            _observeSteps();
+          }
+        } catch (_) {
+          // Older Core2 firmware and non-status packets can still be logged.
+        }
         final hex = bytes
             .map((b) => b.toRadixString(16).padLeft(2, '0'))
             .join(' ');
@@ -341,6 +388,9 @@ class Core2Ble extends ChangeNotifier {
       if (_disposed || device != target) throw StateError('初期化中に切断されました');
       ready = true;
       status = '接続済み・受信待ち';
+      _stepSyncTimer?.cancel();
+      _stepSyncTimer = Timer.periodic(
+        const Duration(minutes: 1), (_) => _flushSteps());
       voiceCloud.setConnection(target.remoteId.str);
       _log('Notify購読開始');
       if (replyData != null && replyAck != null) {
@@ -414,6 +464,11 @@ class Core2Ble extends ChangeNotifier {
   }
 
   void _resetVoice() {
+    _stepSyncTimer?.cancel();
+    _stepSyncTimer = null;
+    _stepStatusDeviceId = null;
+    _stepStatusCount = null;
+    _lastStepObservation = null;
     exchange?.connectedDevice(null);
     _petConfig?.close();
     _petConfig = null;
