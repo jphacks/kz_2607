@@ -3,6 +3,7 @@ import 'app_card.dart';
 import 'watch_information_card.dart';
 import '../foundation/app_colors.dart';
 import '../foundation/watch_pet.dart';
+import '../journey_detail_screen.dart';
 
 class FirstPetJourney extends StatelessWidget {
   const FirstPetJourney({super.key, required this.firstPet});
@@ -39,18 +40,42 @@ class FirstPetJourney extends StatelessWidget {
               _JourneyStop(
                 icon: Icons.home_outlined,
                 label: 'はじまり',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => JourneyDetailScreen(
+                      pet: firstPet!,
+                      stage: JourneyStage.beginning,
+                    ),
+                  ),
+                ),
                 title: 'あなたとはじまった旅',
                 body: firstPet!.sharedDays,
               ),
               _JourneyStop(
                 icon: Icons.route_outlined,
                 label: 'つながる思い出',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => JourneyDetailScreen(
+                      pet: firstPet!,
+                      stage: JourneyStage.memories,
+                    ),
+                  ),
+                ),
                 title: 'これまでの出会い',
                 body: firstPet!.encounters,
               ),
               _JourneyStop(
                 icon: Icons.explore_outlined,
                 label: 'いま',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => JourneyDetailScreen(
+                      pet: firstPet!,
+                      stage: JourneyStage.present,
+                    ),
+                  ),
+                ),
                 title: '旅はつづいています',
                 body: firstPet!.summary,
                 current: true,
@@ -80,83 +105,93 @@ class _JourneyStop extends StatelessWidget {
     required this.label,
     required this.title,
     required this.body,
+    required this.onTap,
     this.current = false,
     this.last = false,
   });
+  final VoidCallback onTap;
   final IconData icon;
   final String label, title, body;
   final bool current, last;
   @override
-  Widget build(BuildContext context) => IntrinsicHeight(
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          width: 32,
-          child: Column(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: current ? AppColors.primary : AppColors.soft,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  icon,
-                  size: 16,
-                  color: current ? Colors.white : AppColors.primary,
-                ),
-              ),
-              if (!last)
-                Expanded(
-                  child: Container(
-                    width: 2,
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    color: AppColors.soft,
-                  ),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(bottom: last ? 0 : 24),
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 32,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    height: 1.5,
-                    color: AppColors.primary,
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: current ? AppColors.primary : AppColors.soft,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 16,
+                    color: current ? Colors.white : AppColors.primary,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.5,
-                    fontWeight: FontWeight.bold,
+                if (!last)
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      color: AppColors.soft,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  body,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    height: 1.7,
-                    color: AppColors.muted,
-                  ),
-                ),
               ],
             ),
           ),
-        ),
-      ],
+          const SizedBox(width: 14),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: last ? 0 : 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      height: 1.5,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    body,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.7,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(left: 8, top: 24),
+            child: Icon(Icons.chevron_right_rounded, color: AppColors.primary),
+          ),
+        ],
+      ),
     ),
   );
 }
