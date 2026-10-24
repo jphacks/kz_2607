@@ -6,10 +6,13 @@ void main() {
   late VoiceTransfer transfer;
   late List<List<int>> acks;
   late List<Uint8List> audio;
+  late List<Map<String, Object?>> metrics;
   setUp(() {
     acks = [];
     audio = [];
+    metrics = [];
     transfer = VoiceTransfer(
+      onMetrics: metrics.add,
       chunkSize: 240,
       ack: (session, sequence) => acks.add([session, sequence]),
       onAudio: audio.add,
@@ -58,6 +61,13 @@ void main() {
     transfer.receive([3, 7, 15, 0]);
     expect(audio.length, 1);
     expect(acks.last, [7, 15]);
+    expect(metrics.length, 1);
+    expect(metrics.single['success'], true);
+    expect(metrics.single['duplicatePackets'], 14);
+    expect(metrics.single['packets'], 14);
+    expect(metrics.single['audioBytes'], 3200);
+    expect(metrics.single['chunkSize'], 240);
+    expect(metrics.single['receiveUs'], isA<int>());
   });
   test('missing packet prevents completion', () {
     start();
@@ -92,6 +102,7 @@ void main() {
   test('reset discards interrupted recording and allows a new transfer', () {
     start();
     transfer.reset();
+    expect(metrics.single['success'], false);
     transfer.receive([3, 7, 1, 0]);
     expect(audio, isEmpty);
     start();

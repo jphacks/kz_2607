@@ -10,8 +10,10 @@ class VoiceLink {
     required this.onStatus,
     required this.onProgress,
     required this.onAudio,
+    this.onMetrics,
   });
   final BluetoothCharacteristic data, control;
+  final void Function(Map<String, Object?>)? onMetrics;
   final void Function(String) onStatus;
   final void Function(int, int) onProgress;
   final void Function(Uint8List) onAudio;
@@ -22,11 +24,11 @@ class VoiceLink {
   bool _closed = false;
 
   Future<void> start(BluetoothDevice device) async {
-    var chunk = 16;
+    var chunk = (device.mtuNow - 7).clamp(1, 240);
     try {
       chunk = ((await device.requestMtu(247)) - 7).clamp(1, 240);
     } catch (_) {
-      /* ATT MTU 23 allows 16-byte payloads plus headers. */
+      chunk = (device.mtuNow - 7).clamp(1, 240);
     }
     if (_closed) return;
     _transfer = VoiceTransfer(
@@ -34,6 +36,8 @@ class VoiceLink {
       ack: _ack,
       onProgress: onProgress,
       onAudio: onAudio,
+      onMetrics: (metrics) =>
+          onMetrics?.call({...metrics, 'mtu': device.mtuNow}),
     );
     _subscription = data.onValueReceived.listen((packet) {
       if (_closed) return;

@@ -60,7 +60,9 @@ void drawScreen() {
   if (voiceRecording()) {
     M5.Display.printf("Recording: %.1f / 5.0 s", voiceDurationSeconds());
   } else if (replyReceiverReceiving()) {
-    M5.Display.printf("Receiving reply: %u%%", replyReceiverProgressPercent());
+    M5.Display.printf("%s reply: %u%%",
+                      voicePlayingReply() ? "Playing" : "Receiving",
+                      replyReceiverProgressPercent());
   } else if (voicePlayingReply()) {
     M5.Display.print("Playing reply...");
   } else if (connected && !voiceTransferConfigured()) {
@@ -101,6 +103,7 @@ void startBle() {
 }  // namespace
 
 void setup() {
+  Serial.begin(115200);
   M5.begin(M5.config());
   voiceBegin();
   startBle();
