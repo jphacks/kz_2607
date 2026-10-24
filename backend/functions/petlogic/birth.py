@@ -139,6 +139,6 @@ def set_initial_personality(db, uid, data, now, run_tx=run_in_transaction):
             pet = {**pet, **fields}
         return {"petId": pet_id, "personalityAxes": pet["personalityAxes"], "birthTrait": pet["birthTrait"],
                 "birthStatus": birth_status_of(pet),
-                "appearance": appearance_of(pet_id, pet["personalityAxes"], "baby"), "alreadySet": already}
+                "appearance": appearance_of(pet_id, pet["personalityAxes"], "baby", fixed_order=True), "alreadySet": already}
 
     return {"status": "ok", **run_tx(db, work)}
