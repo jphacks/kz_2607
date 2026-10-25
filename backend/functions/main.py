@@ -186,8 +186,9 @@ def summarizeHandoff(event: firestore_fn.Event[firestore_fn.DocumentSnapshot]):
     key, model = OPENAI_API_KEY.value, os.environ.get("OPENAI_MODEL")
     db, handoff_id = firestore.client(), event.params["handoffId"]
     start_journeys(db, handoff_id)  # 値(言葉・会話数・時間帯)は、AIなしで先に書く
-    summarize_handoff(db, handoff_id, make_summarizer(key, model), _now())
+    # 思い出(新しい飼い主にすぐ渡す)を先に作り、手紙の材料は、そのあとで作る
     finish_journeys(db, handoff_id, lambda system, user: openai_chat(system, user, key, model, json_mode=True), _now())
+    summarize_handoff(db, handoff_id, make_summarizer(key, model), _now())
 
 
 @firestore_fn.on_document_written(document="pets/{petId}/talkLogs/{generation}", secrets=[OPENAI_API_KEY], timeout_sec=300)

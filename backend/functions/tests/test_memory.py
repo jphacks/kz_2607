@@ -271,15 +271,16 @@ def test_talk_context_includes_past_memories_and_payload_passes_them():
     assert build_ai_payload("x", "p", {"generation": 2}, NOW, ctx)["pastMemories"][0]["generation"] == 1
 
 
-def test_summarizing_an_ended_generation_does_not_overwrite_the_new_owners_cache():
+def test_summary_finishing_after_the_exchange_still_reaches_the_new_owners_cache():
     db, pet = setup(5)
-    db.docs[("pets", pet)].update({"generation": 2, "ownerUid": "u2"})  # すでに交換が済んで、2代目(別の飼い主)
+    db.docs[("pets", pet)].update({"generation": 2, "ownerUid": "u2"})  # 要約の途中で、交換が済んだ(別の飼い主・2代目)
+    refresh_cache(db, pet, NOW)  # 交換の裏の処理が、先に空の置き場を作った
+    assert db.docs[(f"pets/{pet}/memoryCache", "current")]["pastItems"] == []
     summarize_memories(db, pet, 1, lambda s, u: reply([{"text": "散歩をした", "occurred_on": "2026-10-23"}]),
                        NOW, force=True, run_tx=run_tx)
-    assert (f"pets/{pet}/memoryCache", "current") not in db.docs
-    refresh_cache(db, pet, NOW)  # 交換のあとの用意
     cache = db.docs[(f"pets/{pet}/memoryCache", "current")]
-    assert cache["generation"] == 2 and [m["text"] for m in cache["pastItems"]] == ["散歩をした"]
+    assert cache["ownerUid"] == "u2" and cache["generation"] == 2  # 古い飼い主用に戻らない
+    assert [m["text"] for m in cache["pastItems"]] == ["散歩をした"]  # 取りこぼさない
 
 
 def test_talk_context_reads_memories_even_before_the_new_owners_cache_exists():

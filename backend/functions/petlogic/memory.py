@@ -181,7 +181,10 @@ def summarize_memories(db, pet_id, generation, ask_ai, now, force=False, run_tx=
             db.collection("pets").document(pet_id).collection("memories").document().set(
                 {"ownerUid": owner, "generation": generation, "text": m["text"], "createdAt": when})
         pet = db.collection("pets").document(pet_id).get()
-        if not pet.exists or pet.to_dict().get("generation", 1) == generation:  # 終わった代の分では、置き場を作り直さない
+        if pet.exists:  # いまの飼い主・いまの代の置き場を作り直す(終わった代の要約が、交換のあとに終わっても、取りこぼさない)
+            current = pet.to_dict()
+            rebuild_cache(db, pet_id, current.get("ownerUid"), current.get("generation", 1), now)
+        else:
             rebuild_cache(db, pet_id, owner, generation, now)
     except Exception as e:
         logging.error("思い出の要約に失敗しました: %s: %s", type(e).__name__, str(e)[:300].replace("\n", " "))
