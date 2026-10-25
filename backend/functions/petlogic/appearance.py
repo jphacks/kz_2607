@@ -1,6 +1,7 @@
 """姿(どの絵を出すか)。性格の強い2軸と、成長の段階から、絵のキーを決める。
 
 絵そのものは、アプリ・Core2 が持つ。バックエンドは、キーだけ返す。
+  tertiary    3番目に強い軸(パーツ方式で、口などを選ぶのに使える)
   key         "{一番強い軸}_{2番目の軸}_{段階}"  例: "nightowl_curious_baby"(6×5×3 = 90通り)
   fallbackKey "{一番強い軸}_{段階}"              例: "nightowl_baby"(6×3 = 18通り。キーの絵がないときの代わり)
 同じ値の軸が並んだときの順番:
@@ -23,11 +24,12 @@ def appearance_of(pet_id, axes, stage, fixed_order=False):
     axes = axes or {}
     tie = (lambda n: AXIS_NAMES.index(n)) if fixed_order else (lambda n: _tiebreak(pet_id, n))
     ranked = sorted(AXIS_NAMES, key=lambda n: (-float(axes.get(n, 0.5)), tie(n)))
-    primary, secondary = ranked[0], ranked[1]
+    primary, secondary, tertiary = ranked[0], ranked[1], ranked[2]
     return {
         "stage": stage,
         "primary": primary,
         "secondary": secondary,
+        "tertiary": tertiary,
         "key": f"{primary}_{secondary}_{stage}",
         "fallbackKey": f"{primary}_{stage}",
     }

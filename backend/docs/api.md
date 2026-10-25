@@ -312,11 +312,13 @@ appearance: {
   stage: "baby",                  // baby / child / adult
   primary: "nightowl",            // いちばん強い軸
   secondary: "curious",           // 2番目に強い軸
+  tertiary: "talkative",          // 3番目に強い軸(パーツ方式の口などに)
   key: "nightowl_curious_baby",   // 出す絵のキー
   fallbackKey: "nightowl_baby"    // key の絵がないときの代わり
 }
 ```
 
+- `primary` `secondary` `tertiary` は、いつも別の軸。パーツ方式では、動物 = `primary` と `stage`、目 = `secondary`、口 = `tertiary` のように使える(組み合わせは、アプリで決める)。
 - 軸の名前: `activity`(活発さ)、`nightowl`(夜ふかし)、`logical`(理屈っぽさ)、`talkative`(おしゃべり)、`friendly`(人懐っこさ)、`curious`(好奇心)
 - 絵は、`{primary}_{secondary}_{stage}`(6×5×3 = 90枚)と、`{primary}_{stage}`(6×3 = 18枚)の、合計108枚。全部そろわなくても、`fallbackKey` の18枚があれば動く。
 - 性格が変わると、キーも変わる(交換のあとなど)。表示のたびに、`getPet` の `appearance.key` を見る。

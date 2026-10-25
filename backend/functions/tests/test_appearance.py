@@ -16,8 +16,10 @@ AXES = {"activity": 0.5, "friendly": 0.5, "talkative": 0.5, "logical": 0.5, "cur
 def test_top_two_axes_decide_the_key():
     axes = {**AXES, "nightowl": 0.7, "curious": 0.6}
     a = appearance_of("p1", axes, "baby")
-    assert a == {"stage": "baby", "primary": "nightowl", "secondary": "curious",
-                 "key": "nightowl_curious_baby", "fallbackKey": "nightowl_baby"}
+    assert {k: a[k] for k in ("stage", "primary", "secondary", "key", "fallbackKey")} == {
+        "stage": "baby", "primary": "nightowl", "secondary": "curious",
+        "key": "nightowl_curious_baby", "fallbackKey": "nightowl_baby"}
+    assert a["tertiary"] not in ("nightowl", "curious")  # 3番目は、残りの4軸のどれか
     assert appearance_of("p1", axes, "adult")["key"] == "nightowl_curious_adult"
 
 
@@ -48,3 +50,10 @@ def test_get_pet_returns_appearance():
     db.docs[("pets", pet)]["personalityAxes"].update({"logical": 0.9, "talkative": 0.8})
     info = get_pet(db, "u1", "devA")
     assert info["appearance"]["key"] == "logical_talkative_baby" and info["appearance"]["stage"] == "baby"
+
+
+def test_tertiary_is_third_strongest_and_follows_fixed_order_on_ties():
+    axes = {"activity": 0.8, "friendly": 0.6, "talkative": 0.4, "logical": 0.4, "curious": 0.2, "nightowl": 0.2}
+    a = appearance_of("p1", axes, "baby", fixed_order=True)
+    assert (a["primary"], a["secondary"], a["tertiary"]) == ("activity", "friendly", "talkative")  # 同点は決まった順
+    assert len({a["primary"], a["secondary"], a["tertiary"]}) == 3
