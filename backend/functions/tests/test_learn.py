@@ -62,12 +62,30 @@ def test_learn_adds_new_words_only():
     assert db.docs[("pets", pet)]["learnedWords"] == ["みかん", "ねこ"]
 
 
-def test_learn_stops_at_50_words():
+def test_learn_replaces_oldest_words_at_50():
     db, pet = setup()
     db.docs[("pets", pet)]["learnedWords"] = [f"w{i}" for i in range(49)]
-    assert learn(db, pet, ["あ", "い", "う"]) == ["あ"]
-    assert len(db.docs[("pets", pet)]["learnedWords"]) == 50
-    assert learn(db, pet, ["え"]) == []
+    assert learn(db, pet, ["あ", "い", "う"]) == ["あ", "い", "う"]  # 新しく覚えた言葉は、全部返す
+    words = db.docs[("pets", pet)]["learnedWords"]
+    assert len(words) == 50 and words[:2] == ["w2", "w3"] and words[-3:] == ["あ", "い", "う"]  # 古い2語(w0, w1)が消える
+    assert learn(db, pet, ["え"]) == ["え"]
+    assert db.docs[("pets", pet)]["learnedWords"][-1] == "え" and len(db.docs[("pets", pet)]["learnedWords"]) == 50
+    assert "w2" not in db.docs[("pets", pet)]["learnedWords"]
+
+
+def test_learn_at_50_does_not_change_when_word_already_known():
+    db, pet = setup()
+    db.docs[("pets", pet)]["learnedWords"] = [f"w{i}" for i in range(50)]
+    assert learn(db, pet, ["w10"]) == []
+    assert db.docs[("pets", pet)]["learnedWords"][0] == "w0"
+
+
+def test_learn_at_50_still_records_history_for_journeys():
+    db, pet = setup()
+    db.docs[("pets", pet)]["learnedWords"] = [f"w{i}" for i in range(50)]
+    learn(db, pet, ["あ"])
+    hist = [v for k, v in db.docs.items() if k[0] == f"pets/{pet}/history"]
+    assert any(h.get("words") == ["あ"] for h in hist)  # 上限に達しても、旅の記録のもとになる履歴は残る
 
 
 def test_learn_only_for_current_owner_and_pet():

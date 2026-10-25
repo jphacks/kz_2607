@@ -41,7 +41,7 @@ def clean_words(raw):
 
 
 def learn_words(db, uid, device_id, pet_id, raw_words, now, run_tx=run_in_transaction):
-    """覚えた言葉(新しく増えたもの)を返す。失敗しても、会話は止めず、空を返す。"""
+    """覚えた言葉(新しく増えたもの)を返す。上限(50語)を超えたら、古いものから入れかえる。失敗しても、会話は止めず、空を返す。"""
     words = clean_words(raw_words)
     if not words:
         return []
@@ -60,11 +60,11 @@ def learn_words(db, uid, device_id, pet_id, raw_words, now, run_tx=run_in_transa
             return []
         pet = pet_snap.to_dict()
         known = list(pet.get("learnedWords") or [])
-        room = MAX_WORDS_PER_PET - len(known)
-        new = [w for w in words if w not in known][: max(room, 0)]
+        new = [w for w in words if w not in known]
         if not new:
             return []
-        tx.update(pet_ref, {"learnedWords": known + new})
+        # 50語を超えるときは、古い順(先頭から)に入れかえる。並びは、覚えた順(古い → 新しい)
+        tx.update(pet_ref, {"learnedWords": (known + new)[-MAX_WORDS_PER_PET:]})
         tx.create(
             pet_ref.collection("history").document(),
             {"type": "wordsTaught", "words": new, "generation": pet.get("generation", 1), "createdAt": now},

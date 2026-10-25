@@ -46,6 +46,8 @@ def build_ai_payload(text, pet_id, pet, now, context=None, stage=None):
             payload[key] = context[key]
     if (context or {}).get("recentTurns"):
         payload["summarizedSeq"] = context.get("summarizedSeq")  # 要約済みの番号(まだなら null)
+    if pet.get("learnedWords"):
+        payload["learnedWords"] = list(pet["learnedWords"])  # いままでに覚えた言葉(この会話で新しく覚える前の全部)
     if pet.get("name"):
         payload["petName"] = pet["name"]
     if pet.get("firstPerson"):

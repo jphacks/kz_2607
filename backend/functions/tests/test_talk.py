@@ -378,7 +378,7 @@ def test_summarized_seq_is_doubled_and_only_this_generation():
     db.docs[("pets", pet)]["generation"] = 2
     f = Fakes()
     call(db, f, now=NOW + timedelta(minutes=20))
-    assert "recentTurns" not in f.ai_calls[0][1]
+    assert "recentTurns" not in f.ai_calls[0][1]  # 別の代の会話は送らない
 
 
 def test_recent_turns_failure_does_not_break_the_conversation(monkeypatch):
@@ -387,3 +387,14 @@ def test_recent_turns_failure_does_not_break_the_conversation(monkeypatch):
     monkeypatch.setattr("petlogic.talklog._ref", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
     f = Fakes()
     assert call(db, f, now=NOW + timedelta(minutes=5))["status"] == "ok" and "recentTurns" not in f.ai_calls[0][1]
+
+
+def test_payload_sends_all_learned_words_before_this_talk():
+    assert "learnedWords" not in build_ai_payload("x", "p", {"learnedWords": []}, NOW)
+    assert build_ai_payload("x", "p", {"learnedWords": ["みかん", "ねこ"]}, NOW)["learnedWords"] == ["みかん", "ねこ"]
+    db, pet = setup()
+    db.docs[("pets", pet)]["learnedWords"] = ["みかん"]
+    f = Fakes(words=["ねこ"])
+    r = call(db, f)
+    assert f.ai_calls[0][1]["learnedWords"] == ["みかん"]  # この会話で覚える前の一覧
+    assert r["learnedWords"] == ["ねこ"]
