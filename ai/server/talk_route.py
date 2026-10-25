@@ -10,6 +10,7 @@ import unicodedata
 from typing import Tuple
 
 from complex_question import force_complex
+from mem_kind import asks_owner, asks_pet
 from memory import is_recall
 from pet_self import question_kind
 
@@ -23,6 +24,14 @@ def adjust_action(j: dict, user_text: str) -> Tuple[bool, bool]:
     memory_or_chat … 思い出が見つからなければ雑談で返す
     past_hint      … 思い出は必ず前の代として探す"""
     j["override"] = None
+    # 「ぼくの名前覚えてる？」「俺の好きなものわかる？」は飼い主自身のこと。判定によらず思い出（facts・直近の会話）で答える。
+    # ABOUT_PET_RE（「名前」「好きな」）より先に見る。危ない発言（安全な返事）は変えない
+    t = unicodedata.normalize("NFKC", user_text)
+    if j["action"] != "安全な返事" and asks_owner(t):
+        if j["action"] != "思い出":
+            j["override"] = f"{j['action']}→思い出（飼い主のこと）"
+        j["action"] = "思い出"
+        return False, False
     # 判定が雑談か思い出かで迷ったとき（judge_infer の「思い出（検索して無ければ雑談）」）は、まず思い出を探す。
     # そのままだとどの振り分けにも当たらず 8080（LoRA なし）に落ちていた
     memory_or_chat = j["action"].startswith("思い出（")
@@ -59,4 +68,10 @@ def adjust_action(j: dict, user_text: str) -> Tuple[bool, bool]:
         j["override"] = "ペット自身→思い出（前のこと）"
         j["action"] = "思い出"
         past_hint = True
+    # 「きみの名前覚えてる？」はペット自身のこと。思い出になっても（判定・上の「覚えてる」）ペット自身に戻す
+    # （思い出で答えると、直近の会話の「ぼくの名前はゆうとだよ」で飼い主の名前を答えてしまう）
+    if j["action"] == "思い出" and asks_pet(t):
+        j["override"] = (j["override"] or "思い出") + "→ペット自身（ペットのこと）"
+        j["action"] = "ペット自身"
+        return False, False
     return memory_or_chat, past_hint

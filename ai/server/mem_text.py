@@ -59,6 +59,54 @@ def dont_know_reply(kind: str, p: PetProfile, only_owner: bool = False) -> str:
     return random.choice(DONT_KNOW[k]).format(fp=p.first_person)
 
 
+PAST_WHO = {"past": ("前の飼い主さん", "まえのかいぬしさん"), "first": ("最初の飼い主さん", "さいしょのかいぬしさん")}
+PAST_LEADS = tuple(w[0] + "がね、" for w in PAST_WHO.values())   # past_memory_say の文の始まり（「えっとね、」を重ねない）
+
+
+def past_memory_say(t: str, kind: str, p: PetProfile) -> str:
+    """前の代の思い出（要約の1文）で答える文。要約は主語なし・「〜と話してくれた」「〜と言っていた」で終わるので、
+    「前の飼い主さんがね、〜って話してくれたんだ」にする。赤ちゃんは句読点なし（template_reply が「よ。」を足して直す）"""
+    who = PAST_WHO["first" if kind == "first" else "past"][1 if p.stage == 1 else 0]
+    t = t.strip().rstrip("。")
+    t = re.sub(r"と((?:話|言|笑|喜|教|しゃべ)[^と]*)$", r"って\1", t)    # 「〜と話してくれた」→「〜って話してくれた」
+    t = re.sub(r"([てで])いた$", r"\1た", t)                           # 「言っていた」→「言ってた」
+    if not _ends_past(t):
+        return f"{who}とのおもいでは{t}" if p.stage == 1 else f"{who}とのことは「{t}」って覚えてるよ"
+    return f"{who}が{t}んだ" if p.stage == 1 else f"{who}がね、{t}んだ"
+
+
+def _baby_past(s: str, p: PetProfile) -> str:
+    """前の代の文を赤ちゃん言葉に。baby_talk.py は文の終わりを口ぐせ（〜だよっ！・〜なの・〜なのだ・〜かな？…）に置きかえるので、
+    「〜したんだ」のままだと「〜しただよっ！」「〜したなの」になる。「〜したこと」で終えて、どの口ぐせでも自然にする"""
+    b = re.sub(r"[、，,！!？?「」]", "", s)
+    b = re.sub(r"(?<=[ただ])んだ$", "こと", b)
+    return _baby(b + "。", p)
+
+
+OWNER_FIRST_PERSON_RE = re.compile(r"^(?:ぼく|僕|ボク|俺|おれ|オレ|わたし|私|あたし|うち|自分)(?:の|は|が|も)?")
+
+
+def told_say(text: str, p: PetProfile) -> str:
+    """名前・好きなものを、直近の会話の飼い主の発言（facts がまだ無いとき）で答える文。
+    引用すると飼い主の一人称（「ぼくの名前は」）がペットの言葉に聞こえるので、一人称を取り、引用せずに
+    「さっき名前はゆうとだって教えてくれたよね」にする。赤ちゃんは「〜こと」で終える（口ぐせに置きかわっても崩れない）"""
+    t = OWNER_FIRST_PERSON_RE.sub("", text.strip()).strip("、 ")
+    t = re.sub(r"(?:よね|よ|ね|な|さ|わ)?[。！!？?…〜ー\s]*$", "", t)
+    if p.stage == 1:
+        return f"さっき{t}っておしえてくれたこと"
+    return f"うん、覚えてるよ！さっき{t}って教えてくれたよね"
+
+
+def fact_say(f: dict, p: PetProfile) -> str:
+    """事実（parse_facts の1件）を聞かれたときの決まった文。template_reply の says[0] に使う。
+    赤ちゃんは一文・句読点なし（baby_talk.py は最初の一文だけ残すので）"""
+    w = f["words"]
+    if f["key"] == "ownerName":
+        return f"きみのなまえは{w[0]}だよね" if p.stage == 1 else f"うん、覚えてるよ！きみの名前は{w[0]}だよね"
+    likes = "と".join(w)
+    return f"きみは{likes}がすきだよね" if p.stage == 1 else f"うん、覚えてるよ！きみは{likes}が好きなんだよね"
+
+
 def template_reply(kind: str, lines: List[str], p: PetProfile, label: str = "", says: Optional[List[str]] = None) -> str:
     """思い出の1行目だけで作る決まった返事。前の代は journey_items の say（質問に合う値が先頭）を使う。
     今の飼い主で says[0] があるのは直近の会話（まだ要約されていない発言）を引用するとき"""
@@ -68,8 +116,8 @@ def template_reply(kind: str, lines: List[str], p: PetProfile, label: str = "", 
     if kind != "current" and says:
         s = says[0].rstrip("。")
         if p.stage == 1:
-            return _baby(re.sub(r"[、，,！!？?「」]", "", s) + "よ。", p)
-        return f"えっとね、{s}。"
+            return _baby_past(s, p)
+        return f"{s}。" if s.startswith(PAST_LEADS) else f"えっとね、{s}。"
     t = lines[0].rstrip("。")
     if p.stage == 1:
         # baby_talk.py は最初の一文だけ残す（「！」「、」で切れる）ので、一文・句読点なしで渡す
@@ -77,7 +125,7 @@ def template_reply(kind: str, lines: List[str], p: PetProfile, label: str = "", 
         if kind == "current":
             return _baby(f"{label}{b}よね。" if _ends_past(b) else f"{b}のことおぼえてるよ。", p)
         who = "さいしょのかいぬしさん" if kind == "first" else "まえのかいぬしさん"
-        return _baby(f"{who}とは{b}んだよ。" if _ends_past(b) else f"{who}とのこと{b}っておぼえてるよ。", p)
+        return _baby_past(f"{who}とは{b}んだ" if _ends_past(b) else f"{who}とのおもいでは{b}", p)
     if kind == "current":
         s = f"{label}{t}よね" if _ends_past(t) else f"「{t}」のこと"
         return f"うん、覚えてるよ！{s}。" if _ends_past(t) else f"うん、{s}覚えてるよ！"
@@ -96,15 +144,22 @@ RULES = (
 )
 RULES_PAST = "\n- 今の飼い主さんの名前や、今の飼い主さんとの思い出は話さない"
 RULES_BABY = "\n- 一文で答える"
+RULES_FACTS = "\n- 【いつも覚えていること】に書いてあることも使ってよい"
+FACTS_HEAD = "【いつも覚えていること】（いまの飼い主さんのこと）"
 
 
-def build_extra(kind: str, lines: List[str], p: PetProfile) -> str:
+def build_extra(kind: str, lines: List[str], p: PetProfile, facts: Optional[List[str]] = None) -> str:
+    """facts … 今の飼い主の大事な事実の行（parse_facts）。今の飼い主の話（current）のときだけ、毎回入れる"""
+    facts = facts if kind == "current" else None
     rules = RULES.format(fp=p.first_person) + (RULES_PAST if kind != "current" else "") + \
-        (RULES_BABY if p.stage == 1 else "")
+        (RULES_FACTS if facts else "") + (RULES_BABY if p.stage == 1 else "")
     head = {"current": "【覚えていること】（いまの飼い主さんとの思い出）",
             "past": "【覚えていること】（前の飼い主さんとの思い出）",
             "first": "【覚えていること】（最初の飼い主さんとの思い出）"}[kind]
-    return rules + "\n\n" + head + "\n" + "\n".join(f"- {ln}" for ln in lines)
+    text = rules + "\n\n" + head + "\n" + "\n".join(f"- {ln}" for ln in lines)
+    if facts:
+        text += "\n\n" + FACTS_HEAD + "\n" + "\n".join(f"- {ln}" for ln in facts)
+    return text
 
 
 def build_rewrite_hint(sentence: str) -> str:

@@ -53,6 +53,7 @@ memory.py — 思い出の返事（判定が「思い出」、またはペット
     mem_text.py   … 決まった返事・一言の代わり・プロンプト
     mem_check.py  … 返事のチェック
 """
+import os
 import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -61,13 +62,14 @@ import mem_config as C
 from common import TZ, PetProfile
 from mem_check import LEFTOVER_RE, check_reaction, memory_check, trim_to_memory  # noqa: F401
 from mem_embed import Embedder, lexical_sim  # noqa: F401
-from mem_kind import date_range, day_label, is_recall, memory_kind  # noqa: F401
+from mem_kind import asks_pet, date_range, day_label, is_recall, is_time_question, memory_kind  # noqa: F401
 from mem_names import norm_name_map, unmask  # noqa: F401
 from mem_past import (journey_items, journey_lines, order_by_question, parse_past_memories,  # noqa: F401
                       pick_journey, target_generation)
-from mem_select import key_hit, parse_memories, recent_items, select_memories  # noqa: F401
+from mem_select import (FACT_ASK_RE, FACT_TOPIC_RE, content_words, fact_question_key, key_hit,  # noqa: F401
+                        parse_facts, parse_memories, pick_facts, recent_items, select_memories, select_newest)
 from mem_text import (_ends_past, build_extra, build_hint, build_react_hint, build_rewrite_hint,  # noqa: F401
-                      dont_know_reply, fallback_reaction, template_reply)
+                      dont_know_reply, fact_say, fallback_reaction, past_memory_say, template_reply, told_say)
 
 
 # ---------------------------------------------------------------- 本体
@@ -77,16 +79,55 @@ class MemoryTalk:
         self.embedder = embedder or Embedder()
 
     def materials(self, kind: str, p: PetProfile, user_text: str, memories, name_map, journeys,
-                  today: date, past_memories=None, hist=None) -> Tuple[List[str], dict, str]:
-        """【覚えていること】の文・記録・日付の言葉。文が空なら「覚えてない」。"""
+                  today: date, past_memories=None, hist=None, summarized_seq=None,
+                  facts=None) -> Tuple[List[str], dict, str]:
+        """【覚えていること】の文・記録・日付の言葉。文が空なら「覚えてない」。facts は parse_facts の結果（今の飼い主のときだけ）"""
         info: Dict[str, Any] = {"kind": kind}
         if kind == "current":
             items = parse_memories(memories, name_map)
-            recent = recent_items(hist, user_text)       # まだ要約されていない直近の会話（飼い主の発言）
-            picked, sel = select_memories(self.embedder, user_text, items, name_map, today, recent)
+            recent = recent_items(hist, user_text, summarized_seq)   # まだ要約されていない直近の会話（飼い主の発言）
+            past, gen = [], None
+            if is_time_question(user_text):
+                # 時間を聞く質問（「昨日なにしたっけ？」）は、前の代の思い出も候補にする（交換したばかりでも答えられるように）
+                gen = target_generation("past", p, journeys, past_memories)
+                past = [{**m, "past": True} for m in parse_past_memories(past_memories, gen)[0]] if gen is not None else []
+                info["time_question"], info["past_n"] = True, len(past)
+            if info.get("time_question") and not content_words(user_text):
+                # 中身の言葉が無い → 近さを使わず新しい順（同じ日なら 直近の会話 → 今の代 → 前の代）
+                picked, sel = select_newest(user_text, recent + items + past, today)
+            else:
+                picked, sel = select_memories(self.embedder, user_text, items, name_map, today, recent)
+                if not picked and past:
+                    picked, sel = select_memories(self.embedder, user_text, past, {}, today)
+            if os.environ.get("DEBUG_PROMPT"):   # 一時的：直近の候補・要約された思い出・選んだもの
+                print(f"[memory] hist={len(hist or [])} recent={[m['text'] for m in recent]} "
+                      f"saved={len(items)} past={len(past)} picked={[m['text'] for m in picked]} sel={sel}", flush=True)
             info.update(sel)
             info["recent_n"] = len(recent)
-            labels = ["さっき" if m.get("recent") else day_label(m["date"], today) for m in picked]
+            if picked and picked[0].get("past"):
+                # 前の代の思い出で答える。reply() で past として扱う（見出し・今の飼い主の名前のチェック・facts を入れない）
+                picked = [m for m in picked if m.get("past")]
+                info.update({"answer_kind": "past", "generation": gen, "picked": [m["id"] for m in picked],
+                             "keys": ["pastMemory"]})
+                info["_plain"] = lines = [m["text"] for m in picked]
+                info["_says"] = [past_memory_say(picked[0]["text"], "past", p)]
+                return lines, info, ""
+            picked = [m for m in picked if not m.get("past")]
+            if asks_pet(user_text):
+                # 「きみの名前覚えてる？」：ペット自身のこと。飼い主の名前・名前や好きなものの話（「ぼくの名前はゆうとだよ」）は使わない
+                names = [n for n in name_map.values() if len(n) >= 2]
+                picked = [m for m in picked if not any(n in m["text"] for n in names) and not FACT_TOPIC_RE.search(m["text"])]
+                info["pet_ask"], info["picked"] = True, [m["id"] for m in picked]
+            elif not pick_facts(user_text, facts or []):
+                # 名前・好きなものを聞かれて facts で答えられない（要約がまだ届いていない）→ 直近の飼い主の発言のうち、
+                # 「名前」「好き」を含むものを候補にする（中身の言葉の照合・近さに頼らない）
+                key = fact_question_key(user_text)
+                rec = [m for m in recent if key and FACT_ASK_RE[key].search(m["text"])]
+                if rec:
+                    picked = rec[:C.MEMORY_TOPK]
+                    info["recent_fact"], info["picked"] = key, [m["id"] for m in picked]
+                    info.pop("why", None)
+            labels =["さっき" if m.get("recent") else day_label(m["date"], today) for m in picked]
             lines = [(f"さっき、「{m['text']}」と話してくれた" if m.get("recent") else (f"{lb}、" if lb else "") + m["text"])
                      for m, lb in zip(picked, labels)]
             if picked and picked[0].get("recent"):       # 決まった返事は、言った言葉をそのまま引用する（話した順）
@@ -97,9 +138,19 @@ class MemoryTalk:
                 else:
                     q = "」「".join(m["text"] for m in rec)
                     info["_says"] = [f"うん、覚えてるよ！さっき「{q}」って話してくれたよね"]
+            if info.get("recent_fact"):                  # 名前・好きなもの：引用せずに「さっき〜って教えてくれたよね」
+                info["_says"] = [told_say(picked[0]["text"], p)]
             # 決まった返事用に、1件目の日付の言葉を別に持つ
             info["label"] = labels[0] if picked else ""
             info["_plain"] = [m["text"] for m in picked]
+            # 名前・好きなものを聞かれたら、近さによらず事実（facts）で答える。事実を先頭にして、思い出は残りの枠に
+            hits = pick_facts(user_text, facts or [])
+            if hits:
+                info["fact_picked"] = [f["key"] for f in hits]
+                info["_says"] = [fact_say(hits[0], p)]
+                info["label"] = ""
+                lines = ([f["line"] for f in hits] + lines)[:C.MEMORY_TOPK]
+                info["_plain"] = ([f["line"] for f in hits] + info["_plain"])[:C.MEMORY_TOPK]
             return lines, info, info["label"]
         gen = target_generation(kind, p, journeys, past_memories)
         info["n"] = len(journeys or [])
@@ -116,17 +167,19 @@ class MemoryTalk:
         past, dropped = parse_past_memories(past_memories, gen)
         info["past_n"], info["past_dropped"] = len(past), dropped
         if past and (qtype in ("default", "when") or not items):   # 旅の記録が無ければ、どの質問でも思い出で答える
-            picked, sel = select_memories(self.embedder, user_text, past, {}, today)
+            if qtype == "default" and not content_words(user_text):
+                # 「前の飼い主さんとは何の話をした？」：中身の言葉が無いので、近さを使わず新しい順
+                picked, sel = select_newest(user_text, past, today)
+                info["past_method"] = "newest"
+            else:
+                picked, sel = select_memories(self.embedder, user_text, past, {}, today)
             info["past_scores"], info["past_why"] = sel.get("scores"), sel.get("why")
             if not picked and not items:            # 旅の記録が無いときは、いちばん新しい思い出で答える
                 picked = past[:1]
             if picked:
                 m = picked[0]
-                who = ("さいしょのかいぬしさん" if kind == "first" else "まえのかいぬしさん") if p.stage == 1 else \
-                      ("最初の飼い主さん" if kind == "first" else "前の飼い主さん")
                 t = m["text"]
-                say = f"{who}とは{t}んだ" if _ends_past(t) else f"{who}とのことは「{t}」って覚えてるよ"
-                items = [{"key": "pastMemory", "line": t, "say": say}] + items
+                items = [{"key": "pastMemory", "line": t, "say": past_memory_say(t, kind, p)}] + items
                 info["picked"] = [m["id"]]
         if not items:
             info["why"] = "旅の記録・前の代の思い出がない"
@@ -141,20 +194,31 @@ class MemoryTalk:
         return lines, info, ""
 
     def reply(self, p: PetProfile, hist: List[dict], user_text: str, memories=None, name_map=None,
-              journeys=None, today: Optional[date] = None, past_hint: bool = False, past_memories=None):
+              journeys=None, today: Optional[date] = None, past_hint: bool = False, past_memories=None,
+              summarized_seq: Optional[int] = None, facts=None):
         """返り値: (返事, generator, persona)。
-        past_hint=True … 判定・ペット自身が「前のこと」と決めて回してきたとき。言葉で current になっても past にする"""
+        past_hint=True … 判定・ペット自身が「前のこと」と決めて回してきたとき。言葉で current になっても past にする
+        summarized_seq … バックエンドの summarizedSeq。これ以下の直近の発言は要約と重なるので候補から外す
+        facts … 今の飼い主の大事な事実（ownerName・likes）。今の飼い主の話のときだけ【いつも覚えていること】に入れる"""
         today = today or datetime.now(TZ).date()
         name_map = norm_name_map(name_map)
         kind = memory_kind(user_text)
         if past_hint and kind == "current":
             kind = "past"
-        lines, info, label = self.materials(kind, p, user_text, memories, name_map, journeys, today, past_memories, hist)
+        # 前の代の話・ペット自身のこと（「きみの名前覚えてる？」）には入れない
+        fact_items = parse_facts(facts, name_map) if kind == "current" and not asks_pet(user_text) else []
+        fact_lines = [f["line"] for f in fact_items]
+        lines, info, label = self.materials(kind, p, user_text, memories, name_map, journeys, today, past_memories, hist,
+                                            summarized_seq, fact_items)
         plain = info.pop("_plain", [])
         says = info.pop("_says", None)
+        if info.get("answer_kind") == "past":
+            # 時間を聞く質問に前の代の思い出で答える：ここからは前の代の話として扱う
+            # （【覚えていること】は前の飼い主さんの見出し・今の飼い主の facts は入れない・今の飼い主の名前をチェック）
+            kind, fact_items, fact_lines = "past", [], []
         if past_hint:
             info["past_hint"] = True
-        info.update({"lines": lines, "check": None, "reasons": []})
+        info.update({"lines": lines, "check": None, "reasons": [], "facts": [f["key"] for f in fact_items]})
         persona_base = {"stage": p.stage}
 
         if not lines:
@@ -169,11 +233,16 @@ class MemoryTalk:
             # 赤ちゃん言葉に直すと最初の一文だけ残り、中身が消える（「あのね、いいね！」）ので、モデルを呼ばない
             info["check"] = "baby-template"
             return template_reply(kind, plain, p, label, says), "memory-template", {**persona_base, "memory": info}
+        if info.get("fact_picked") or info.get("recent_fact") or (info.get("keys") or [None])[0] == "pastMemory":
+            # 事実（名前・好きなもの。facts でも直近の会話でも）・前の代の思い出は決まった文だけで答える。
+            # 性格LoRA の一言（「楽しかったね！」）は、名前や前の飼い主さんから聞いた話には合わない
+            info["check"] = "template（決まった文だけ）"
+            return template_reply(kind, plain, p, label, says), "memory-template", {**persona_base, "memory": info}
 
         if C.MEMORY_PROMPT == "react":
-            return self._react(p, hist, user_text, kind, lines, plain, label, name_map, info, says)
+            return self._react(p, hist, user_text, kind, lines, plain, label, name_map, info, says, fact_lines)
 
-        reply, persona = self.chat.reply(p, hist, user_text, extra=build_extra(kind, lines, p),
+        reply, persona = self.chat.reply(p, hist, user_text, extra=build_extra(kind, lines, p, fact_lines),
                                          sampling={"temperature": self.temperature}, extra_first=True,
                                          model_text=user_text + (build_rewrite_hint(template_reply(kind, plain, p, label, says))
                                                                  if C.MEMORY_PROMPT == "rewrite" else build_hint(kind, plain)))
@@ -198,17 +267,17 @@ class MemoryTalk:
         persona["memory"] = info
         return template_reply(kind, plain, p, label, says), "memory-template", persona
 
-    def _react(self, p, hist, user_text, kind, lines, plain, label, name_map, info, says=None):
+    def _react(self, p, hist, user_text, kind, lines, plain, label, name_map, info, says=None, fact_lines=None):
         """思い出の中身は決まった文（必ず正しい）。そのあとに性格LoRA の気持ちの一言を足す。
         一言がチェックに外れたら、決まった文だけ返す。"""
         fact = template_reply(kind, plain, p, label, says)
         info["prompt"] = "react"
-        reply, persona = self.chat.reply(p, hist, user_text, extra=build_extra(kind, lines, p),
+        reply, persona = self.chat.reply(p, hist, user_text, extra=build_extra(kind, lines, p, fact_lines),
                                          sampling={"temperature": self.temperature}, extra_first=True,
                                          model_text=user_text + build_react_hint(fact))
         raw = persona.get("raw") or reply
         names = list(name_map.values()) if kind == "current" else []
-        reaction, reasons = check_reaction(raw, plain, names, p, fact)
+        reaction, reasons = check_reaction(raw, plain, names, p, fact, facts=fact_lines or [])
         if kind != "current":
             for n in name_map.values():
                 if len(n) >= 2 and n in reaction:

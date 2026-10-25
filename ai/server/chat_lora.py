@@ -107,6 +107,9 @@ class ChatLoRA:
                 "stream": False, **samp,
                 "lora": [{"id": self.lora_ids[a], "scale": round(scales.get(a, 0.0), 3)}
                          for a in AXIS_ORDER if a in self.lora_ids]}
+        if os.environ.get("DEBUG_PROMPT"):       # 一時的：モデルに渡すプロンプト全文を出す
+            import json
+            print(f"[prompt] hist_len={len(hist)}\n" + json.dumps(body["messages"], ensure_ascii=False, indent=1), flush=True)
         r = requests.post(f"{self.url}/v1/chat/completions", json=body, timeout=60)
         r.raise_for_status()
         raw = clean_reply((r.json()["choices"][0]["message"]["content"] or "").strip(), p.name)

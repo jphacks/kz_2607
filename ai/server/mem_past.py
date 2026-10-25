@@ -129,6 +129,8 @@ QUESTION_ORDER = [
     ("words", re.compile(r"教え|おしえ|言葉|ことば|口ぐせ|くちぐせ|習っ|ならっ"), ["learnedWords", "summary", "speech"]),
     ("grew", re.compile(r"変わ|かわっ|成長|せいちょう|育っ|そだっ|性格|せいかく|どうなった"), ["grewTrait", "summary", "talkCount"]),
     ("when", re.compile(r"いつ|何時|なんじ|朝|夜|昼"), ["timeOfDay", "summary"]),
+    # 「前はどこにいたの？」：前の代の思い出（できごと1件）ではなく、旅の記録のまとめで答える
+    ("where", re.compile(r"どこ|どちら"), ["summary", "timeOfDay", "speech", "talkCount"]),
 ]
 DEFAULT_ORDER = ["summary", "timeOfDay", "learnedWords", "speech", "grewTrait", "talkCount"]
 
