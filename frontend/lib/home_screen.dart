@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'birth_screen.dart';
 import 'core2_connection_screen.dart';
 import 'exchange_result_screen.dart';
@@ -14,6 +18,7 @@ import 'foundation/app_colors.dart';
 import 'foundation/app_spacing.dart';
 import 'foundation/services/core2_ble.dart';
 import 'foundation/controllers/home_pet_controller.dart';
+import 'foundation/models/pet_parts.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.firstPet = WatchPet.firstCreatedSample});
@@ -24,18 +29,23 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _pet = HomePetController();
+  final _portraitKey = GlobalKey();
   bool _wasBusy = false;
+  bool _imageQueued = false;
+  String? _imageAttemptedKey, _imagePreparationError;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _pet.addListener(_queueImageSync);
   }
 
   Core2Ble _ensureBle() {
     if (_ble == null) {
       _ble = Core2Ble();
       _ble!.voiceCloud.addListener(_syncPet);
+      _ble!.addListener(_queueImageSync);
     }
     return _ble!;
   }
@@ -46,6 +56,85 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _wasBusy = cloud.busy;
     final rebound = _pet.bind(cloud.deviceId, cloud.petId);
     if (changed && !rebound) _pet.refresh();
+  }
+
+  String? get _currentImageKey {
+    final ble = _ble;
+    final pet = _pet.pet;
+    final appearance = pet?.appearance;
+    if (ble == null || pet == null || appearance == null ||
+        ble.voiceCloud.petId != pet.petId) return null;
+    return '${ble.imageConnectionEpoch}:${pet.petId}:${appearance.key}';
+  }
+
+  void _queueImageSync() {
+    final ble = _ble;
+    final key = _currentImageKey;
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true ||
+        ble == null || key == null || _imageQueued ||
+        _imageAttemptedKey == key || !ble.canSendPetImage ||
+        ble.imageSending || ble.voiceCloud.busy) return;
+    _imageQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _imageQueued = false;
+      if (mounted) unawaited(_sendCurrentImage());
+    });
+  }
+
+  Future<Uint8List> _capturePortrait() async {
+    final boundary = _portraitKey.currentContext?.findRenderObject();
+    if (boundary is! RenderRepaintBoundary) {
+      throw StateError('表示中のキャラクターを取得できません');
+    }
+    // PNG is losslessly compressed. Reduce resolution if the artwork is too
+    // large for the BLE transfer limit; all sizes fit within Core2's screen.
+    Uint8List? smallest;
+    for (final side in [192, 160, 128, 96]) {
+      final image = await boundary.toImage(pixelRatio: side / 130);
+      try {
+        final data = await image.toByteData(format: ui.ImageByteFormat.png);
+        if (data == null) throw StateError('PNGへの圧縮に失敗しました');
+        final png = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+        smallest = Uint8List.fromList(png);
+        if (smallest.length <= 32 * 1024) return smallest;
+      } finally {
+        image.dispose();
+      }
+    }
+    if (smallest != null && smallest.length <= 128 * 1024) return smallest;
+    throw StateError('画像が128 KiBを超えています');
+  }
+
+  Future<void> _sendCurrentImage({bool force = false}) async {
+    final ble = _ble;
+    final key = _currentImageKey;
+    if (ble == null || key == null || !ble.canSendPetImage ||
+        ble.imageSending || ble.voiceCloud.busy ||
+        (!force && _imageAttemptedKey == key)) return;
+    _imageAttemptedKey = key;
+    _imagePreparationError = null;
+    try {
+      final parts = PetParts(_pet.pet!.appearance!);
+      await Future.wait([
+        precacheImage(AssetImage(parts.animalAsset), context),
+        precacheImage(AssetImage(parts.eyesAsset), context),
+        precacheImage(AssetImage(parts.mouthAsset), context),
+      ]);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || _currentImageKey != key) return;
+      final png = await _capturePortrait();
+      if (!mounted || _currentImageKey != key || !ble.canSendPetImage) return;
+      // The captured portrait is square; its maximum side is 192 pixels.
+      // The chosen side can be recovered from the PNG IHDR width field.
+      final header = ByteData.sublistView(png);
+      final width = header.getUint32(16);
+      final height = header.getUint32(20);
+      await ble.sendPetImage(png, width: width, height: height);
+    } catch (error) {
+      if (mounted && _currentImageKey == key) {
+        setState(() => _imagePreparationError = '画像をCore2に送れません: $error');
+      }
+    }
   }
 
   @override
@@ -59,6 +148,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ble?.voiceCloud.removeListener(_syncPet);
+    _ble?.removeListener(_queueImageSync);
+    _pet.removeListener(_queueImageSync);
     _pet.dispose();
     _ble?.dispose();
     super.dispose();
@@ -199,9 +290,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Center(
-                                child: CurrentPetPortrait(
-                                  name: _pet.pet!.name,
-                                  appearance: _pet.pet!.appearance,
+                                child: RepaintBoundary(
+                                  key: _portraitKey,
+                                  child: CurrentPetPortrait(
+                                    name: _pet.pet!.name,
+                                    appearance: _pet.pet!.appearance,
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 16),
@@ -230,6 +324,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ],
                           ),
                         ),
+                        if (_ble?.ready == true) ...[
+                          const SizedBox(height: 8),
+                          Text(_imagePreparationError ?? _ble!.imageStatus,
+                              style: const TextStyle(fontSize: 12)),
+                          if (_ble!.imageSending && _ble!.imageTotalBytes > 0)
+                            LinearProgressIndicator(
+                              value: _ble!.imageSentBytes / _ble!.imageTotalBytes,
+                            ),
+                          if (_ble!.canSendPetImage && !_ble!.imageSending)
+                            TextButton(
+                              onPressed: () => _sendCurrentImage(force: true),
+                              child: const Text('キャラクター画像をCore2へ再送'),
+                            ),
+                        ],
                         const SizedBox(height: 16),
                         const Text(
                           'この子に残っているもの',

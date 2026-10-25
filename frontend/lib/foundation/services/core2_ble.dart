@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'voice_link.dart';
 import 'voice_cloud_service.dart';
 import 'reply_voice_sender.dart';
+import 'pet_image_sender.dart';
 import 'voice_transfer_metrics.dart';
 import 'voice_transfer.dart';
 import 'pet_config_transport.dart';
@@ -53,6 +54,15 @@ class Core2Ble extends ChangeNotifier {
   String petConfigStatus = 'petIdはCore2へ未送信です';
   static final replyDataId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000007');
   static final replyAckId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000008');
+  static final imageDataId = Guid('7f5a0001-7b7d-4f3b-9d01-000000000009');
+  static final imageAckId = Guid('7f5a0001-7b7d-4f3b-9d01-00000000000a');
+  PetImageSender? _imageSender;
+  int imageConnectionEpoch = 0;
+  bool imageSending = false;
+  int imageSentBytes = 0, imageTotalBytes = 0;
+  String imageStatus = '画像送信は未開始';
+  bool get canSendPetImage => ready && _imageSender != null &&
+      voiceCloud.petId != null && _syncedPetId == voiceCloud.petId;
   BluetoothCharacteristic? _voiceData, _voiceControl;
   bool voiceStarting = false;
   bool voiceListening = false;
@@ -336,7 +346,8 @@ class Core2Ble extends ChangeNotifier {
         }
       }
       final services = await target.discoverServices();
-      BluetoothCharacteristic? characteristic, command, replyData, replyAck;
+      BluetoothCharacteristic? characteristic, command, replyData, replyAck,
+          imageData, imageAck;
       for (final service in services) {
         if (service.uuid != serviceId) continue;
         for (final value in service.characteristics) {
@@ -345,6 +356,12 @@ class Core2Ble extends ChangeNotifier {
           }
           if (value.uuid == replyAckId && value.properties.notify) {
             replyAck = value;
+          }
+          if (value.uuid == imageDataId && value.properties.write) {
+            imageData = value;
+          }
+          if (value.uuid == imageAckId && value.properties.notify) {
+            imageAck = value;
           }
           if (value.uuid == statusId) characteristic = value;
           if (value.uuid == commandId && value.properties.write) {
@@ -451,6 +468,38 @@ class Core2Ble extends ChangeNotifier {
       } else {
         _log('返答音声の受信サービスがありません。Core2側の対応が必要です');
       }
+      if (imageData != null && imageAck != null) {
+        final data = imageData;
+        final sender = PetImageSender(
+          write: (bytes, withoutResponse) => data.write(
+            bytes,
+            withoutResponse:
+                withoutResponse && data.properties.writeWithoutResponse,
+          ),
+          acknowledgements: imageAck.onValueReceived,
+          onMetrics: (metrics) => _metrics.record({
+            ...metrics,
+            'deviceId': target.remoteId.str,
+            'mtu': target.mtuNow,
+            'platform': Platform.operatingSystem,
+          }, _log),
+        );
+        try {
+          await imageAck.setNotifyValue(true);
+          if (_disposed || device != target) {
+            await sender.close();
+            throw StateError('画像送信の準備中に切断されました');
+          }
+          _imageSender = sender;
+          imageStatus = '画像送信の準備ができました';
+        } catch (e) {
+          await sender.close();
+          imageStatus = '画像送信の準備に失敗: $e';
+          _log(imageStatus);
+        }
+      } else {
+        imageStatus = 'Core2側の画像受信機能は未対応です';
+      }
       if (canReceiveVoice) {
         // Match the prototype: subscribe to voice automatically after BLE setup.
         await startVoice();
@@ -488,6 +537,13 @@ class Core2Ble extends ChangeNotifier {
     final reply = _reply;
     _reply = null;
     unawaited(reply?.close());
+    final imageSender = _imageSender;
+    _imageSender = null;
+    unawaited(imageSender?.close());
+    imageConnectionEpoch++;
+    imageSending = false;
+    imageSentBytes = imageTotalBytes = 0;
+    imageStatus = '画像送信は未開始';
     if (!_disposed) voiceCloud.setConnection(null);
     final previous = _voice;
     _voice = null;
@@ -641,6 +697,66 @@ class Core2Ble extends ChangeNotifier {
     }
     status = '未接続';
     _refresh();
+  }
+
+  Future<void> sendPetImage(Uint8List png, {required int width, required int height}) async {
+    final target = device;
+    final sender = _imageSender;
+    final petId = voiceCloud.petId;
+    if (!ready || target == null || sender == null || petId == null ||
+        _syncedPetId != petId) {
+      throw StateError('Core2側の画像受信機能またはpetId同期が未完了です');
+    }
+    if (imageSending || voiceCloud.busy || exchange?.busy == true) {
+      throw StateError('音声・交換・画像の処理が終わってから送信してください');
+    }
+    imageSending = true;
+    imageSentBytes = 0;
+    imageTotalBytes = png.length;
+    imageStatus = '画像をCore2へ送信中…';
+    _refresh();
+    try {
+      final clock = Stopwatch()..start();
+      final chunk = (target.mtuNow - 7).clamp(1, 240);
+      await sender.send(
+        png: png,
+        petId: petId,
+        width: width,
+        height: height,
+        chunkSize: chunk,
+        onProgress: (sent, total, elapsed) {
+          if (_disposed || _imageSender != sender) return;
+          if (voiceCloud.petId != petId || _syncedPetId != petId) {
+            throw StateError('画像送信中にペットが変わりました');
+          }
+          imageSentBytes = sent;
+          imageTotalBytes = total;
+          final kbps = elapsed.inMilliseconds == 0 ? 0.0 :
+              sent * 1000 / elapsed.inMilliseconds / 1024;
+          imageStatus = '画像送信 ${sent ~/ 1024}/${(total + 1023) ~/ 1024} KiB · '
+              '${kbps.toStringAsFixed(1)} KiB/秒';
+          _refresh();
+        },
+      );
+      if (_disposed || _imageSender != sender) return;
+      clock.stop();
+      final seconds = clock.elapsedMilliseconds / 1000;
+      final kbps = seconds == 0 ? 0.0 : png.length / 1024 / seconds;
+      imageStatus = '画像送信完了: ${seconds.toStringAsFixed(2)}秒 · '
+          '${kbps.toStringAsFixed(1)} KiB/秒（Core2のACK確認済み）';
+      _log(imageStatus);
+    } catch (error) {
+      if (!_disposed && _imageSender == sender) {
+        imageStatus = '画像送信に失敗: $error';
+        _log(imageStatus);
+      }
+      rethrow;
+    } finally {
+      if (_imageSender == sender) {
+        imageSending = false;
+        _refresh();
+      }
+    }
   }
 
   @override
