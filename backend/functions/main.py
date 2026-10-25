@@ -13,6 +13,7 @@ from petlogic.errors import ApiError
 from petlogic.exchange import cancel_exchange, get_exchange_result, report_exchange
 from petlogic.journey import finish_journeys, start_journeys
 from petlogic.naming import set_pet_name
+from petlogic.first_pet import get_first_pet
 from petlogic.letters import generate_letters, get_letters
 from petlogic.llm import openai_chat
 from petlogic.memory import batch_turns, summarize_memories
@@ -139,6 +140,13 @@ def getLetters(req: https_fn.CallableRequest):
     """自分が最初に作ったペットから届いた手紙の一覧(新しい順)。"""
     uid = _require_uid(req)
     return _run(lambda: get_letters(firestore.client(), uid))
+
+
+@https_fn.on_call()
+def getFirstPet(req: https_fn.CallableRequest):
+    """自分が最初に作ったペットの、名前・今の世代・見た目・世代別の思い出。ほかの飼い主の分は、ぼかして返す。"""
+    uid = _require_uid(req)
+    return _run(lambda: get_first_pet(firestore.client(), uid, _now()))
 
 
 @https_fn.on_call()
