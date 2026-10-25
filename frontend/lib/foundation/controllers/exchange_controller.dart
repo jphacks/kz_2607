@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../models/pending_exchange.dart';
+import '../models/exchange_record.dart';
 import '../services/cloud_functions_service.dart';
 import '../services/exchange_resolver.dart';
 
@@ -32,6 +33,14 @@ class ExchangeController extends ChangeNotifier {
       _journal.values.any((entry) => entry['acked'] != true);
   Future<void> get ready => _ready;
   String? deliveredPetId;
+
+  List<ExchangeRecord> get records => List.unmodifiable(
+    _journal.values.toList().reversed.map((record) => ExchangeRecord(
+      exchange: PendingExchange.fromMap(Map<String, dynamic>.from(record['exchange'] as Map)),
+      result: record['result'] as String? ?? 'confirming',
+      acknowledged: record['acked'] == true,
+    )),
+  );
 
   void _publish() {
     if (!_disposed) notifyListeners();

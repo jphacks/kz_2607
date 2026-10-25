@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'core2_connection_screen.dart';
+import 'exchange_result_screen.dart';
 import 'letters_screen.dart';
 import 'watch_screen.dart';
 import 'foundation/watch_pet.dart';
@@ -247,7 +248,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 12),
                       ActionButton(
                         label: '確定した交換結果を見る',
-                        onPressed: () => _showInfo('交換結果', '交換結果の表示は準備中です。'),
+                        onPressed: () {
+                          _ble ??= Core2Ble();
+                          setState(() {});
+                          Navigator.of(context).push<void>(
+                            MaterialPageRoute(
+                              builder: (_) => ExchangeResultScreen(ble: _ble!),
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                       const Text(
