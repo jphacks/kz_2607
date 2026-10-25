@@ -57,3 +57,39 @@ def test_tertiary_is_third_strongest_and_follows_fixed_order_on_ties():
     a = appearance_of("p1", axes, "baby", fixed_order=True)
     assert (a["primary"], a["secondary"], a["tertiary"]) == ("activity", "friendly", "talkative")  # 同点は決まった順
     assert len({a["primary"], a["secondary"], a["tertiary"]}) == 3
+
+
+# ---- 種族(動物)は、誕生のときの軸で固定 ----
+def test_species_is_fixed_but_eyes_and_mouth_follow_the_current_personality():
+    axes = {**AXES, "curious": 0.8, "logical": 0.7, "nightowl": 0.6}  # いまの性格では、curious が一番強い
+    a = appearance_of("p1", axes, "baby", species="nightowl")
+    assert a["primary"] == "nightowl"  # 動物は固定
+    assert (a["secondary"], a["tertiary"]) == ("curious", "logical")  # 目・口は、残りの中で強い順
+    assert a["key"] == "nightowl_curious_baby" and a["fallbackKey"] == "nightowl_baby"
+    assert len({a["primary"], a["secondary"], a["tertiary"]}) == 3
+
+
+def test_species_stays_after_the_personality_moves_by_exchange():
+    from petlogic.appearance import appearance_for_pet
+    pet = {"personalityAxes": {**AXES, "nightowl": 0.8, "curious": 0.6}, "birthTrait": "night", "birthAnswers": [0] * 6}
+    assert appearance_for_pet("p1", pet, "child")["primary"] == "nightowl"
+    pet["personalityAxes"] = {**AXES, "nightowl": 0.6, "curious": 0.8}  # 交換のあと、性格が動いた
+    a = appearance_for_pet("p1", pet, "child")
+    assert a["primary"] == "nightowl" and a["secondary"] == "curious"
+
+
+def test_old_pets_without_birth_trait_follow_the_current_personality():
+    from petlogic.appearance import appearance_for_pet
+    pet = {"personalityAxes": {**AXES, "curious": 0.8, "nightowl": 0.6}}
+    assert appearance_for_pet("p1", pet, "baby")["primary"] == "curious"
+
+
+def test_every_birth_trait_maps_to_an_axis_and_get_pet_uses_it():
+    from petlogic.appearance import species_of
+    from petlogic.talk import AI_AXIS_NAMES
+    assert {species_of({"birthTrait": ai}) for ai in AI_AXIS_NAMES.values()} == set(AI_AXIS_NAMES)
+    assert species_of({"birthTrait": "unknown"}) is None and species_of({}) is None
+    db = FakeDb()
+    pet = register_device(db, "u1", "devA", NOW)["petId"]
+    db.docs[("pets", pet)].update({"personalityAxes": {**AXES, "curious": 0.9}, "birthTrait": "night"})
+    assert get_pet(db, "u1", "devA")["appearance"]["primary"] == "nightowl"

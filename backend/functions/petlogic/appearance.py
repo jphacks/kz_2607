@@ -9,6 +9,9 @@
     curious → nightowl。birthTrait(active → affection → talkative → logic → curious → night)と同じ順なので、
     誕生のときは、birthTrait と primary が、必ず同じ軸になる。
   ・昔のペット(誕生のながれを通っていない): ペットごとに決まった順(同じペットなら、いつも同じ結果)。
+種族(動物 = primary)は、誕生のながれを通ったペットでは、誕生のときの軸(birthTrait)で固定する。
+交換で飼い主が変わって性格が動いても、動物は変わらない。目(secondary)と口(tertiary)は、今の性格で決まる
+(動物の軸を除いた中で、強い順)。誕生のながれを通っていない昔のペットは、今の性格で決まる。
 """
 import hashlib
 
@@ -20,10 +23,13 @@ def _tiebreak(pet_id, name):
     return hashlib.sha256(f"{pet_id}:{name}".encode()).hexdigest()
 
 
-def appearance_of(pet_id, axes, stage, fixed_order=False):
+def appearance_of(pet_id, axes, stage, fixed_order=False, species=None):
+    """species: 動物(primary)として固定する軸の名前(例: "nightowl")。なければ、今の性格で決める。"""
     axes = axes or {}
     tie = (lambda n: AXIS_NAMES.index(n)) if fixed_order else (lambda n: _tiebreak(pet_id, n))
     ranked = sorted(AXIS_NAMES, key=lambda n: (-float(axes.get(n, 0.5)), tie(n)))
+    if species in AXIS_NAMES:
+        ranked = [species] + [n for n in ranked if n != species]  # 動物は固定。目・口は、残りの中で強い順
     primary, secondary, tertiary = ranked[0], ranked[1], ranked[2]
     return {
         "stage": stage,
@@ -33,6 +39,19 @@ def appearance_of(pet_id, axes, stage, fixed_order=False):
         "key": f"{primary}_{secondary}_{stage}",
         "fallbackKey": f"{primary}_{stage}",
     }
+
+
+def species_of(pet):
+    """誕生のときに決まった、種族(動物)の軸の名前。誕生のながれを通っていないペットは None。"""
+    from .talk import AI_AXIS_NAMES  # 循環を避けるため、ここで読み込む
+    to_axis = {ai: mine for mine, ai in AI_AXIS_NAMES.items()}
+    return to_axis.get(pet.get("birthTrait"))
+
+
+def appearance_for_pet(pet_id, pet, stage):
+    """ペットの見た目。種族は誕生のときの軸で固定、目・口は今の性格。"""
+    return appearance_of(pet_id, pet.get("personalityAxes"), stage,
+                         fixed_order=pet.get("birthAnswers") is not None, species=species_of(pet))
 
 
 def all_keys():

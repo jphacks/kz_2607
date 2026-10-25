@@ -7,7 +7,7 @@
 import re
 from datetime import datetime, timezone
 
-from .appearance import appearance_of
+from .appearance import appearance_for_pet
 from .growth import stage_config, stage_of
 from .memory import ANY_PLACEHOLDER, blur, read_memories, read_name_map
 from .users import ensure_first_pet_quietly, oldest_created_pet
@@ -70,8 +70,7 @@ def get_first_pet(db, uid, now=None):
         "name": pet.get("name"),
         "generation": pet.get("generation", 1),
         "stage": stage,
-        "appearance": appearance_of(pet_id, pet.get("personalityAxes"), stage,
-                                    fixed_order=pet.get("birthAnswers") is not None),
+        "appearance": appearance_for_pet(pet_id, pet, stage),
         "withYou": pet.get("ownerUid") == uid,
         "memories": memories,
     }
