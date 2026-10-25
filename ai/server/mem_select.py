@@ -55,8 +55,11 @@ def recent_items(hist: Optional[List[dict]], user_text: str, summarized_seq: Opt
 
 
 def content_words(text: str) -> List[str]:
-    """発言の中身の言葉（漢字・カタカナ2文字以上。日付・ふつうの言葉を除く）。"""
-    return [w for w in KEY_RE.findall(unicodedata.normalize("NFKC", text)) if w not in KEY_SKIP]
+    """発言の中身の言葉（漢字・カタカナ2文字以上。日付・ふつうの言葉を除く）。
+    「何」は中身にしない（「何話してた？」の「何話」を中身の言葉と数えない）"""
+    words = [w.replace("何", "") if re.fullmatch(r"[一-龥々]+", w) else w
+             for w in KEY_RE.findall(unicodedata.normalize("NFKC", text))]
+    return [w for w in words if len(w) >= 2 and w not in KEY_SKIP]
 
 
 def key_hit(query: str, doc: str) -> bool:

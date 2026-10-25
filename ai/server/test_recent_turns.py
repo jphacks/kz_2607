@@ -237,10 +237,13 @@ class FactsPromptTest(unittest.TestCase):
         hist = RecentSelectTest.turns(["公園でブランコに乗ったよ"])
         mt.reply(p, hist, "公園でブランコに乗ったの覚えてる？", [], NAME_MAP, facts=FACTS)
         self.assertIn("- 飼い主さんの名前はゆうと", chat.extras[-1])
+        self.assertIn(RULES_FACTS.strip(), chat.extras[-1])
         journeys = [{"generation": 1, "summary": "{place_1}でよく散歩した", "timeOfDay": "夜"}]
         r, _, persona = mt.reply(p, hist, "前の飼い主さんとは何してた？", [], NAME_MAP, journeys, facts=FACTS)
         self.assertEqual(persona["memory"]["kind"], "past")
         self.assertNotIn("ゆうと", chat.extras[-1])
+        self.assertIn("【覚えていること】（前の飼い主さんとの思い出）", chat.extras[-1])
+        self.assertNotIn(FACTS_HEAD, chat.extras[-1])
         self.assertNotIn("ゆうと", r)
         self.assertEqual(persona["memory"]["facts"], [])
 
@@ -272,14 +275,14 @@ class FactsAnswerTest(unittest.TestCase):
 
     def test_name(self):
         r, g, persona = self.ask(ASK_TEXT)
-        self.assertTrue(r.startswith("うん、覚えてるよ！きみの名前はゆうとだよね。"), r)
-        self.assertEqual(g, "memory-template+lora")
-        self.assertIn(RULES_FACTS.strip(), self.chat.extras[-1])
-        self.assertIn("【覚えていること】（いまの飼い主さんとの思い出）\n- 飼い主さんの名前はゆうと", self.chat.extras[-1])
+        self.assertEqual((r, g), ("うん、覚えてるよ！きみの名前はゆうとだよね。", "memory-template"))   # 一言は付けない
+        self.assertEqual(self.chat.extras, [])                                                     # モデルを呼ばない
+        self.assertEqual(persona["memory"]["lines"][0], "飼い主さんの名前はゆうと")
 
     def test_likes(self):
-        r, _, persona = self.ask("ぼくの好きなもの、覚えてる？")
-        self.assertTrue(r.startswith("うん、覚えてるよ！きみはいちごとショートケーキとねこが好きなんだよね。"), r)
+        r, g, persona = self.ask("ぼくの好きなもの、覚えてる？")
+        self.assertEqual((r, g), ("うん、覚えてるよ！きみはいちごとショートケーキとねこが好きなんだよね。", "memory-template"))
+        self.assertEqual(self.chat.extras, [])
         self.assertEqual(persona["memory"]["fact_picked"], ["likes"])
 
     def test_baby(self):
@@ -287,6 +290,20 @@ class FactsAnswerTest(unittest.TestCase):
         self.assertEqual((r, g), ("きみのなまえはゆうとだよっ！", "memory-template"))
         r, g, _ = self.ask("すきなもの おぼえてる？", stage=1)
         self.assertEqual((r, g), ("きみはいちごとショートケーキとねこがすきだよっ！", "memory-template"))
+
+    def test_react_only_for_memories(self):
+        """一言（性格LoRA）は、今の飼い主との思い出・直近の会話のときだけ。事実・前の代の思い出には付けない。"""
+        hist = RecentSelectTest.turns(["公園でブランコに乗ったよ"])
+        r, g, _ = self.mt.reply(PetProfile(stage=3), hist, "公園でブランコに乗ったの覚えてる？", [], NAME_MAP, facts=FACTS)
+        self.assertEqual(g, "memory-template+lora")
+        self.assertTrue(r.endswith("楽しかったね！"), r)
+        self.chat.extras.clear()
+        past = [{"id": "p1", "text": "あの公園でボール遊びをした", "generation": 1, "createdAt": "2026-10-20T12:00:00+09:00"}]
+        r, g, persona = self.mt.reply(PetProfile(stage=3, generation=2), [], "前の飼い主さんとボール遊びした？", [], NAME_MAP,
+                                      [], past_memories=past)
+        self.assertEqual((r, g), ("前の飼い主さんがね、あの公園でボール遊びをしたんだ。", "memory-template"))
+        self.assertEqual(persona["memory"]["check"], "template（決まった文だけ）")
+        self.assertEqual(self.chat.extras, [])
 
     def test_pet_own_name_not_picked(self):
         """「きみの名前」はペット自身のことなので、飼い主の名前で答えない。"""
@@ -344,15 +361,12 @@ class ExchangeTest(unittest.TestCase):
             m = persona["memory"]
             with self.subTest(q=q):
                 self.assertIn(word, r)
-                self.assertTrue(r.startswith("前の飼い主さんがね、"), r)
+                self.assertTrue(r.startswith("前の飼い主さんがね、") and r.endswith(word + "。"), r)   # 一言は付けない
+                self.assertEqual((g, self.chat.extras), ("memory-template", []))
                 self.assertNotIn("昨日", r)                                   # 思い出の日付は今日
                 self.assertNotIn("ゆうと", r)                                 # 今の飼い主の名前
                 self.assertEqual(m["picked"], ["past:p1"])
                 self.assertEqual(m["facts"], [])
-                extra = self.chat.extras[-1] if self.chat.extras else ""
-                self.assertIn("【覚えていること】（前の飼い主さんとの思い出）", extra)
-                self.assertNotIn(FACTS_HEAD, extra)
-                self.assertNotIn("ゆうと", extra)
 
     def test_hiyashi_chuka(self):
         self.check_pet("冷やし中華を食べたと話してくれた", "冷やし中華を食べたって話してくれたんだ")
@@ -385,6 +399,13 @@ class ExchangeTest(unittest.TestCase):
             M.judge, M.memory = saved
             talk_state.history.clear()
             talk_state._last_gen.clear()
+
+    def test_content_words(self):
+        from mem_select import content_words
+        for q in EXCHANGE_QUESTIONS + ["昨日なにしてたっけ", "前の飼い主さんと何話してた？", "今日何したか覚えてる？"]:
+            self.assertEqual(content_words(q), [], q)
+        self.assertTrue(content_words("この前の冷やし中華覚えてる？"))          # 中身の言葉がある（「中華覚」）
+        self.assertEqual(content_words("前の飼い主さんとボール遊びした？"), ["ボール"])
 
     def test_where(self):
         """「前はどこにいたの？」は、前の代の思い出（できごと1件）ではなく旅の記録のまとめで答える。"""

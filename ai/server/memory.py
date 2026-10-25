@@ -216,6 +216,11 @@ class MemoryTalk:
             # 赤ちゃん言葉に直すと最初の一文だけ残り、中身が消える（「あのね、いいね！」）ので、モデルを呼ばない
             info["check"] = "baby-template"
             return template_reply(kind, plain, p, label, says), "memory-template", {**persona_base, "memory": info}
+        if info.get("fact_picked") or (info.get("keys") or [None])[0] == "pastMemory":
+            # 事実（名前・好きなもの）・前の代の思い出は決まった文だけで答える。
+            # 性格LoRA の一言（「楽しかったね！」）は、名前や前の飼い主さんから聞いた話には合わない
+            info["check"] = "template（決まった文だけ）"
+            return template_reply(kind, plain, p, label, says), "memory-template", {**persona_base, "memory": info}
 
         if C.MEMORY_PROMPT == "react":
             return self._react(p, hist, user_text, kind, lines, plain, label, name_map, info, says, fact_lines)
