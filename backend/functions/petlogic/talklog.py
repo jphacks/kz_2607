@@ -46,14 +46,29 @@ def read_turns(db, pet_id, generation):
 RECENT_TURNS = 5  # 会話のとき、AIに付ける直近の往復の数
 
 
-def recent_turns(db, pet_id, generation, n=RECENT_TURNS):
-    """直近 n 往復(古い順)。AIに「さっきの話」を渡すための材料。失敗しても、空を返す。"""
+def recent_for_ai(db, pet_id, generation, n=RECENT_TURNS):
+    """AIに付ける「さっきまでの会話」。今の代の直近 n 往復(最大 2n 発言、古い順、今回の発言は含めない)。
+
+    返すのは {"recentTurns": [{speaker, text, seq}, ...], "summarizedSeq": 要約済みの番号か None}。
+    seq は発言ごとの番号: 往復の番号 s に対し、飼い主の発言が 2s-1、ペットの返事が 2s。
+    summarizedSeq も同じ数え方(要約済みの往復の番号 ×2)。まだ要約していなければ None。
+    会話がまだなければ {}。失敗しても {}(会話は止めない)。"""
     try:
-        turns = read_turns(db, pet_id, generation)[-n:]
-        return [{"text": t.get("text", ""), "reply": t.get("reply", "")} for t in turns]
+        snap = _ref(db, pet_id, generation).get()
+        data = snap.to_dict() if snap.exists else {}
+        turns = list(data.get("turns", []))[-n:]
+        if not turns:
+            return {}
+        out = []
+        for i, t in enumerate(turns):
+            s = t["seq"] if isinstance(t.get("seq"), int) else i + 1
+            out.append({"speaker": "owner", "text": t.get("text", ""), "seq": 2 * s - 1})
+            out.append({"speaker": "pet", "text": t.get("reply", ""), "seq": 2 * s})
+        done = data.get("summarizedSeq", 0)
+        return {"recentTurns": out, "summarizedSeq": 2 * done if done else None}
     except Exception as e:
         logging.error("直近の会話の読み込みに失敗しました: %s: %s", type(e).__name__, str(e)[:300])
-        return []
+        return {}
 
 
 def pending_turns(data):
