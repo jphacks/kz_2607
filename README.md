@@ -1,6 +1,4 @@
-# TSUMUGI
-
-[![IMAGE ALT TEXT HERE](https://jphacks.com/wp-content/uploads/2026/07/IMG_5316.png)](https://www.youtube.com/watch?v=piaNsc6ilBI)
+# TSUMUGI（つむぎ）
 
 ## 製品概要
 ### 背景(製品開発のきっかけ、課題等）
@@ -51,11 +49,14 @@ M5Stack Core2とスマートフォンを使い、会話を通じてペットを�
 #### ハッカソンで開発した独自機能・技術
 * 6軸の性格と成長段階に応じたキャラクター表現
 質問への回答を6軸の性格値に変換し、体・目・口を重ねて描画します。成長段階に応じたパーツの配置にも対応しています。
-
+  - [最初のペットの名前・世代・見た目・世代別の思い出を返す getFirstPet の実装](https://github.com/jphacks/kz_2607/commit/e6aa6c0)
+  - [誕生時の性格軸で種族を固定し、交換後も維持する処理の実装](https://github.com/jphacks/kz_2607/commit/f7ee6a7)
 
 * 持ち主が変わっても続く、世代別の思い出表示
 ペットの作成者と現在の持ち主を分けて管理し、旅立ち後も最初のペットの姿と世代別の思い出を取得できる仕組みを開発しました。
-
+  - [判定モデルを用いた判別処理の実装](https://github.com/jphacks/kz_2607/commit/ac179ecbf5250eafbef61856feb236b543d7fa78)
+  - [判定モデル・雑談モデルのコードと学習記録の追加](https://github.com/jphacks/kz_2607/commit/254c3656d4e31f71ae0f5938dfce6bbd68caffff)
 
 * Core2へのキャラクター画像送信
 アプリで合成したキャラクター画像をCore2へ送り、アプリと実機で同じペットを表現する仕組みを開発しました。
+  - [変更内容の説明](https://github.com/jphacks/kz_2607/commit/8b0bb2493c238657977823d021691d649e82f5fe)
