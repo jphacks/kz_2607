@@ -1,5 +1,5 @@
 # TSUMUGI（つむぎ）
-<img width="1254" height="1254" alt="Image" src="https://github.com/user-attachments/assets/4e8f1bb7-ecda-4366-a2f2-156655797b9e" />
+<img width="500" height="500" alt="Image" src="https://github.com/user-attachments/assets/4e8f1bb7-ecda-4366-a2f2-156655797b9e" />
 
 ## 製品概要
 ### 背景(製品開発のきっかけ、課題等）
