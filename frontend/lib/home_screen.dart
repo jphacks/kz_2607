@@ -60,18 +60,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final ble = _ble;
     final pet = _pet.pet;
     final appearance = pet?.appearance;
-    if (ble == null || pet == null || appearance == null ||
-        ble.voiceCloud.petId != pet.petId) return null;
+    if (ble == null ||
+        pet == null ||
+        !pet.born ||
+        appearance == null ||
+        ble.voiceCloud.petId != pet.petId) {
+      return null;
+    }
     return '${ble.imageConnectionEpoch}:${pet.petId}:${appearance.key}';
   }
 
   void _queueImageSync() {
     final ble = _ble;
     final key = _currentImageKey;
-    if (!mounted || ModalRoute.of(context)?.isCurrent != true ||
-        ble == null || key == null || _imageQueued ||
-        _imageAttemptedKey == key || !ble.canSendPetImage ||
-        ble.imageSending || ble.voiceCloud.busy) return;
+    if (!mounted ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        ble == null ||
+        key == null ||
+        _imageQueued ||
+        _imageAttemptedKey == key ||
+        !ble.canSendPetImage ||
+        ble.imageSending ||
+        ble.voiceCloud.busy)
+      return;
     _imageQueued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _imageQueued = false;
@@ -92,7 +103,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       try {
         final data = await image.toByteData(format: ui.ImageByteFormat.png);
         if (data == null) throw StateError('PNGへの圧縮に失敗しました');
-        final png = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+        final png = data.buffer.asUint8List(
+          data.offsetInBytes,
+          data.lengthInBytes,
+        );
         smallest = Uint8List.fromList(png);
         if (smallest.length <= 32 * 1024) return smallest;
       } finally {
@@ -106,9 +120,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _sendCurrentImage({bool force = false}) async {
     final ble = _ble;
     final key = _currentImageKey;
-    if (ble == null || key == null || !ble.canSendPetImage ||
-        ble.imageSending || ble.voiceCloud.busy ||
-        (!force && _imageAttemptedKey == key)) return;
+    if (ble == null ||
+        key == null ||
+        !ble.canSendPetImage ||
+        ble.imageSending ||
+        ble.voiceCloud.busy ||
+        (!force && _imageAttemptedKey == key))
+      return;
     _imageAttemptedKey = key;
     _imagePreparationError = null;
     try {
@@ -287,16 +305,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Center(
-                                child: RepaintBoundary(
-                                  key: _portraitKey,
-                                  child: CurrentPetPortrait(
-                                    name: _pet.pet!.name,
-                                    appearance: _pet.pet!.appearance,
+                              if (_pet.pet!.born)
+                                Center(
+                                  child: RepaintBoundary(
+                                    key: _portraitKey,
+                                    child: CurrentPetPortrait(
+                                      name: _pet.pet!.name,
+                                      appearance: _pet.pet!.appearance,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(height: 16),
+                              if (_pet.pet!.born) const SizedBox(height: 16),
                               Text(
                                 _pet.pet!.name,
                                 style: const TextStyle(
@@ -322,13 +341,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ],
                           ),
                         ),
-                        if (_ble?.ready == true) ...[
+                        if (_pet.pet!.born && _ble?.ready == true) ...[
                           const SizedBox(height: 8),
-                          Text(_imagePreparationError ?? _ble!.imageStatus,
-                              style: const TextStyle(fontSize: 12)),
+                          Text(
+                            _imagePreparationError ?? _ble!.imageStatus,
+                            style: const TextStyle(fontSize: 12),
+                          ),
                           if (_ble!.imageSending && _ble!.imageTotalBytes > 0)
                             LinearProgressIndicator(
-                              value: _ble!.imageSentBytes / _ble!.imageTotalBytes,
+                              value:
+                                  _ble!.imageSentBytes / _ble!.imageTotalBytes,
                             ),
                           if (_ble!.canSendPetImage && !_ble!.imageSending)
                             TextButton(
