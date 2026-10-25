@@ -211,3 +211,14 @@ def test_secondary_uses_same_order_and_getpet_matches_birth_response():
     legacy = {n: 0.5 for n in ("activity", "friendly", "talkative", "logical", "curious", "nightowl")}
     from petlogic.appearance import appearance_of
     assert {appearance_of(f"pet{i}", legacy, "baby")["primary"] for i in range(30)} != {"activity"}
+
+
+def test_unfinished_pet_received_by_exchange_counts_as_born_for_the_receiver():
+    db, a, b = setup()
+    call(db)  # u1 のペット a は、personality_set まで進んだところ
+    assert get_pet(db, "u1", "devA")["birthStatus"] == "personality_set"
+    report_exchange(db, "u1", {"myDeviceId": "devA", "peerDeviceId": "devB", "givenPetId": a, "gotPetId": b,
+                               "transactionId": "t9"}, NOW, run_tx=run_tx)
+    assert get_pet(db, "u2", "devB")["birthStatus"] == "born"  # 受け取った人は、誕生のながれに入らない
+    assert get_pet(db, "u1", "devA")["birthStatus"] == "born"
+    assert err(lambda: gen(db, lambda s, u: GOOD, uid="u2", pet=a)).code == "permission-denied"

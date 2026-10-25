@@ -26,11 +26,12 @@ TEXT_ID = re.compile(r"^[A-Za-z0-9_.:\-]{1,64}$")
 
 def birth_status_of(pet):
     """誕生の進み具合。値がない昔のペットは、中身から決める(勝手に egg とはしない)。"""
+    if pet.get("generation", 1) > 1 or (pet.get("creatorUid") and pet.get("creatorUid") != pet.get("ownerUid")):
+        return "born"  # 交換で受け取ったペット(誕生のながれは、作った本人の1代目のときだけ)
     status = pet.get("birthStatus")
     if status in STATUSES:
         return status
-    if pet.get("name") or pet.get("totalTalks", 0) > 0 or pet.get("generation", 1) > 1 \
-            or (pet.get("creatorUid") and pet.get("creatorUid") != pet.get("ownerUid")):
+    if pet.get("name") or pet.get("totalTalks", 0) > 0:
         return "born"
     if pet.get("birthProfile"):
         return "profile_ready"
