@@ -12,7 +12,7 @@ from .personality import maybe_update_personality
 from .learn import learn_words
 from .memory import load_talk_context
 from .register import validate_device_id
-from .talklog import record_turn
+from .talklog import recent_turns, record_turn
 from .store import run_in_transaction
 from .wav import describe_wav, parse_recording
 
@@ -41,7 +41,7 @@ def ai_axes(axes):
 def build_ai_payload(text, pet_id, pet, now, context=None, stage=None):
     payload = {"text": text, "petId": pet_id, "hour": now.astimezone(JST).hour,
                "generation": pet.get("generation", 1)}
-    for key in ("memories", "pastMemories", "nameMap", "journeys"):  # 思い出の材料(空なら付けない)
+    for key in ("memories", "pastMemories", "nameMap", "journeys", "recentTurns"):  # 思い出・直近の会話(空なら付けない)
         if (context or {}).get(key):
             payload[key] = context[key]
     if pet.get("name"):
@@ -125,7 +125,8 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
     # 音声認識と、思い出の読み込みを、同時に行う(待ち時間を増やさない)
     with ThreadPoolExecutor(max_workers=1) as pool:
         stt = pool.submit(recognize, pcm, rate, language, phrases)
-        context = load_talk_context(db, uid, pet_id, pet)
+        context = dict(load_talk_context(db, uid, pet_id, pet))
+        context["recentTurns"] = recent_turns(db, pet_id, pet.get("generation", 1))
         try:
             transcript, _confidence = stt.result()
         except Exception as e:

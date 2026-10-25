@@ -244,6 +244,7 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 | `generation` | ペットの今の代(数字) |
 | `memories` | `[{id, text, generation, createdAt}]` 最新30件。今の飼い主が育てた代のもの(元の飼い主に戻ってきたら、昔の分も入る)。名前は `{shop_1}` のような伏せ字で、`nameMap` で本当の名前に戻せる。`createdAt` はISO文字列 |
 | `pastMemories` | `[{id, text, generation, createdAt}]` 前の飼い主たちの思い出(最大10件)。直前の代から最大7件+1代目から最大3件(直前が1代目なら1代目から10件)、新しい順。**伏せ字は「あの人」「あのお店」などにぼかし済み**。今の飼い主が育てた代の分は入らない |
+| `recentTurns` | `[{text, reply}]` 直近の会話(最大5往復、古い順)。同じ代の中の、さっきまでの話。1回目の会話など、まだないときは付かない。AIは、これを見て会話の流れを続ける(AIサーバー側で覚えておかなくてよい) |
 | `nameMap` | `{"{shop_1}": "ミスド"}` 伏せ字と本当の名前の対応(この飼い主のもの) |
 | `journeys` | `[{generation, learnedWords, talkCount, timeOfDay?, summary?}]` 前の持ち主たちの旅の記録 |
 
