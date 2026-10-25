@@ -91,7 +91,7 @@ class FirstPetJourney extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'キャラクター・近況・履歴は表示サンプルです。飼い主は匿名で表示します。',
+          '思い出は各世代の新しいものから最大10件表示します。ほかの飼い主の名前は公開しません。',
           style: TextStyle(fontSize: 11, height: 1.6, color: AppColors.muted),
         ),
       ],

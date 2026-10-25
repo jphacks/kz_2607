@@ -23,6 +23,13 @@ void main() {
       expect(parts.mouthAsset, 'assets/pet_parts/mouth/mouth_04_smile.png');
     },
   );
+  test('new appearance uses tertiary for mouth and legacy keeps secondary', () {
+    final parts = PetParts(
+      PetAppearance.fromMap({...appearance, 'tertiary': 'curious'}),
+    );
+    expect(parts.eyesAsset, 'assets/pet_parts/eyes/eyes_logical.png');
+    expect(parts.mouthAsset, 'assets/pet_parts/mouth/mouth_05_small_o.png');
+  });
   test('unknown or inconsistent artwork identifiers are rejected', () {
     expect(
       () => PetAppearance.fromMap({...appearance, 'key': '../other'}),

@@ -37,10 +37,10 @@ class CurrentPetPortrait extends StatelessWidget {
       eyeSource.width * eyeScale,
       eyeSource.height * eyeScale,
     );
-    final mouthSource = PetPartLayout.mouthSizes[appearance.secondary]!;
+    final mouthSource = PetPartLayout.mouthSizes[parts.mouthAxis]!;
     final mouthWidth =
         layout.eyeSpacing *
-        switch (appearance.secondary) {
+        switch (parts.mouthAxis) {
           'talkative' => .29,
           'curious' => .25,
           _ => .62,

@@ -2,15 +2,42 @@ import 'package:flutter/material.dart';
 import 'designsystem/app_card.dart';
 import 'designsystem/bottom_navigation.dart';
 import 'designsystem/first_pet_journey.dart';
-import 'designsystem/pet_portrait.dart';
+import 'designsystem/current_pet_portrait.dart';
+import 'foundation/controllers/watch_controller.dart';
 import 'designsystem/watch_information_card.dart';
 import 'foundation/app_colors.dart';
 import 'foundation/watch_pet.dart';
 import 'letters_screen.dart';
 
-class WatchScreen extends StatelessWidget {
-  const WatchScreen({super.key, this.firstPet = WatchPet.firstCreatedSample});
-  final WatchPet? firstPet;
+class WatchScreen extends StatefulWidget {
+  const WatchScreen({super.key, this.controller});
+  final WatchController? controller;
+  @override
+  State<WatchScreen> createState() => _WatchScreenState();
+}
+
+class _WatchScreenState extends State<WatchScreen> with WidgetsBindingObserver {
+  late final WatchController _controller =
+      widget.controller ?? WatchController();
+  WatchPet? get firstPet => _controller.pet;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _controller.load();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _controller.load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (widget.controller == null) _controller.dispose();
+    super.dispose();
+  }
 
   Widget _profile(BuildContext context) {
     final pet = firstPet!;
@@ -53,7 +80,11 @@ class WatchScreen extends StatelessWidget {
         ),
       ],
     );
-    final portrait = PetPortrait(name: pet.name, size: 136);
+    final portrait = CurrentPetPortrait(
+      name: pet.name,
+      appearance: pet.appearance,
+      size: 136,
+    );
     return AppCard(
       padding: 20,
       radius: 24,
@@ -113,65 +144,98 @@ class WatchScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Column(
-            children: [
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(24),
-                  children: [
-                    const Text(
-                      '最初の子を見守る',
-                      style: TextStyle(
-                        fontSize: 24,
-                        height: 1.5,
-                        fontWeight: FontWeight.bold,
-                      ),
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _controller,
+    builder: (context, _) => Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Column(
+              children: [
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _controller.load,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(24),
+                      children: [
+                        const Text(
+                          '最初の子を見守る',
+                          style: TextStyle(
+                            fontSize: 24,
+                            height: 1.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          '離れていても、この子の旅はつづいていく。',
+                          style: TextStyle(
+                            fontSize: 14,
+                            height: 1.5,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        if (_controller.loading)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        if (_controller.error != null) ...[
+                          WatchInformationCard(
+                            title: '見守る情報を確認できませんでした',
+                            body: _controller.error!,
+                          ),
+                          TextButton(
+                            onPressed: _controller.load,
+                            child: const Text('もう一度読み込む'),
+                          ),
+                          if (_controller.diagnostic != null)
+                            ExpansionTile(
+                              title: const Text('エラーの詳細'),
+                              children: [
+                                SelectableText(_controller.diagnostic!),
+                              ],
+                            ),
+                        ],
+                        if (!_controller.loading &&
+                            _controller.error == null &&
+                            firstPet == null)
+                          const WatchInformationCard(
+                            title: 'まだ最初の子の情報がありません',
+                            body: '最初に作った子の情報を確認できると、ここから見守れます。',
+                          ),
+                        if (firstPet != null) ...[
+                          _profile(context),
+                          const SizedBox(height: 28),
+                          FirstPetJourney(firstPet: firstPet),
+                        ],
+                      ],
                     ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      '離れていても、この子の旅はつづいていく。',
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 1.5,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    if (firstPet == null)
-                      const WatchInformationCard(
-                        title: 'まだ最初の子の情報がありません',
-                        body: '最初に作った子の情報を確認できると、ここから見守れます。',
-                      )
-                    else ...[
-                      _profile(context),
-                      const SizedBox(height: 28),
-                      FirstPetJourney(firstPet: firstPet),
-                    ],
-                  ],
+                  ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 18),
-                child: BottomNavigation(
-                  selectedIndex: 1,
-                  onSelected: (index) {
-                    if (index == 1) return;
-                    if (index == 0) {
-                      Navigator.maybePop(context);
-                      return;
-                    }
-                    Navigator.of(context).pushReplacement<void, void>(
-                      MaterialPageRoute(builder: (_) => const LettersScreen()),
-                    );
-                  },
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 18),
+                  child: BottomNavigation(
+                    selectedIndex: 1,
+                    onSelected: (index) {
+                      if (index == 1) return;
+                      if (index == 0) {
+                        Navigator.maybePop(context);
+                        return;
+                      }
+                      Navigator.of(context).pushReplacement<void, void>(
+                        MaterialPageRoute(
+                          builder: (_) => const LettersScreen(),
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
