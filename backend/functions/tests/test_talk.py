@@ -344,3 +344,26 @@ def test_talk_saves_the_turn():
     call(db, Fakes(transcript="こんにちは", reply="やあ！"))
     assert read_turns(db, pet, 1)[0]["text"] == "こんにちは"
     assert read_turns(db, pet, 1)[0]["reply"] == "やあ！"
+
+
+def test_ai_gets_recent_turns_oldest_first_and_only_last_5():
+    db, pet = setup()
+    f = Fakes()
+    call(db, f)
+    assert "recentTurns" not in f.ai_calls[0][1]  # 最初の会話には、まだない
+    for i in range(1, 8):
+        call(db, Fakes(transcript=f"発言{i}", reply=f"返事{i}"), now=NOW + timedelta(minutes=i))
+    f = Fakes(transcript="いま")
+    call(db, f, now=NOW + timedelta(minutes=9))
+    turns = f.ai_calls[0][1]["recentTurns"]
+    assert [t["text"] for t in turns] == ["発言3", "発言4", "発言5", "発言6", "発言7"]
+    assert turns[-1] == {"text": "発言7", "reply": "返事7"}
+
+
+def test_recent_turns_failure_does_not_break_the_conversation(monkeypatch):
+    import petlogic.talk as talk_mod
+    db, pet = setup()
+    call(db, Fakes())
+    monkeypatch.setattr("petlogic.talklog.read_turns", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    f = Fakes()
+    assert call(db, f)["status"] == "ok" and "recentTurns" not in f.ai_calls[0][1]

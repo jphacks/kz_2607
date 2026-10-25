@@ -43,6 +43,19 @@ def read_turns(db, pet_id, generation):
     return list(snap.to_dict().get("turns", [])) if snap.exists else []
 
 
+RECENT_TURNS = 5  # 会話のとき、AIに付ける直近の往復の数
+
+
+def recent_turns(db, pet_id, generation, n=RECENT_TURNS):
+    """直近 n 往復(古い順)。AIに「さっきの話」を渡すための材料。失敗しても、空を返す。"""
+    try:
+        turns = read_turns(db, pet_id, generation)[-n:]
+        return [{"text": t.get("text", ""), "reply": t.get("reply", "")} for t in turns]
+    except Exception as e:
+        logging.error("直近の会話の読み込みに失敗しました: %s: %s", type(e).__name__, str(e)[:300])
+        return []
+
+
 def pending_turns(data):
     """まだ要約していない会話(番号つきのもの)。"""
     done = data.get("summarizedSeq", 0)
