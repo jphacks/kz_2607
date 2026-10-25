@@ -58,6 +58,25 @@
 - `createdAt` は、ISO形式の文字列。`petName` は未設定なら `null`
 - 通知をタップしたとき: 通知の `data` に `type: "letter"`、`petId`、`letterId` が入っている。`getLetters` の結果から、その `letterId` を探して表示する
 
+## getFirstPet(最初のペットの紹介)
+**一番最初に作った1体**のペットの、名前・今の世代・見た目・世代別の思い出を返す。「最初のペット」の画面を開くときに呼ぶ。
+
+| 項目 | 内容 |
+|---|---|
+| 送る | なし |
+| 返る | `{ petId, name, generation, stage, appearance, withYou, memories }` |
+
+- `petId`: ペットのID。まだペットを作っていなければ `null`(ほかの項目も `null`、`withYou` は `false`、`memories` は `[]`)
+- `name`: 未設定は `null`。`generation`: **今の**世代。`stage` と `appearance`: `getPet` と同じ形(`appearance` は `primary`・`secondary`・`tertiary`・`stage`・`key`・`fallbackKey`)
+- `withYou`: 今、そのペットが自分のもとにいるか(交換で手放したあとは `false`)
+- `memories`: 世代の小さい順。思い出のない世代は入らない
+  `[ { "generation": 1, "mine": true, "items": [ { "text": "...", "createdAt": "ISO形式" } ] } ]`
+  - `mine`: その世代を、自分が育てたか
+  - `items`: 新しい順で、1つの世代につき最大10件
+- **自分が育てた世代の思い出**: 自分の対応表(nameMap)で、本当の名前に戻して返す(対応がないものは「あのお店」などにぼかす)
+- **ほかの飼い主が育てた世代の思い出**: 人・お店・場所などの名前を「あの人」「あのお店」にぼかして返す。飼い主のUIDも、思い出のIDも返さない。名前の対応表は、自分の分しか使わない
+- エラー: `unauthenticated`
+
 ## 手紙のしくみ
 - 毎朝9時(日本時間)に、サーバーが全ペットを調べる(`sendLettersDaily`)
 - 手紙が出るのは、次の3つが全部そろったペット
