@@ -3,6 +3,7 @@
   pets/{petId}/memories/{id}            ownerUid, generation, text(伏せ字入り), createdAt(できごとの日)
   pets/{petId}/memoryCache/current      items: 今の飼い主の最近30件 / pastItems: 前の飼い主たちの分(ぼかし済み・最大10件)
   users/{uid}/nameMaps/{petId}          伏せ字 → 本当の名前。その飼い主だけが使う(次の飼い主には渡さない)
+  users/{uid}/petFacts/{petId}          大事な事実(ownerName: 呼び方の伏せ字 / likes: 好きなもの 最大3)。要約とは別に毎回渡す。飼い主ごと
 会話が5往復(config/game の summarizeEveryTurns)たまるごとに、別の関数(Firestoreトリガー)で要約する。返事は待たせない。
 """
 import json
@@ -24,6 +25,8 @@ BLUR = {"person": "あの人", "shop": "あのお店", "place": "あの場所", 
         "company": "あの会社", "event": "あの行事", "food": "あの食べ物"}
 MAX_MEMORY_CHARS = 100
 MAX_NAME_CHARS = 30
+MAX_LIKES = 3
+MAX_LIKE_CHARS = 20
 PLACEHOLDER = re.compile(r"^\{(person|shop|place|school|company|event|food)_\d+\}$")
 ANY_PLACEHOLDER = re.compile(r"\{[a-z]+_\d+\}")
 
@@ -45,9 +48,15 @@ SYSTEM_A = """あなたはペット育成アプリの記録係です。飼い主
    危ないこと、だれかの悪口。
 6. occurred_on は、できごとがあった日（today を基準に「昨日」「先週の土曜」などから決める）。
    わからなければ会話の日。
+7. facts は、思い出とは別に、ずっと覚えておく大事な事実。この会話で飼い主が話したときだけ入れる。
+   - ownerName: 飼い主の名前、または呼んでほしい呼び方。必ず person の伏せ字（例: {person_1}）で書き、
+     本当の名前は new_names に入れる。話に出ていなければ null
+   - likes: 飼い主の好きなもの（最大3つ、短い言葉。例: "いちごのアイス"）。話に出ていなければ空の配列
+   - 決まり5と同じく、病気・お金・住所などは入れない。名前は伏せ字にする
 
 出力（JSON だけ）
-{"memories": [{"text": "...", "occurred_on": "YYYY-MM-DD"}], "new_names": {"{shop_1}": "ミスド"}}"""
+{"memories": [{"text": "...", "occurred_on": "YYYY-MM-DD"}], "new_names": {"{shop_1}": "ミスド"},
+ "facts": {"ownerName": "{person_1}", "likes": ["いちごのアイス"]}}"""
 
 
 def build_user_prompt(today, known_names, turns):
@@ -95,6 +104,63 @@ def parse_memories(raw, known_names, today):
             continue  # 対応する名前がない伏せ字
         memories.append({"text": text, "occurred_on": _day(item.get("occurred_on"), today)})
     return memories, new_names
+
+
+def parse_facts(raw, names):
+    """AIの返事から、大事な事実(ownerName / likes)を取り出す。形が違うものは捨てる。何もなければ {}。
+
+    ownerName は person の伏せ字で、names に対応する名前があるものだけ。
+    likes は短い言葉。本当の名前が残っているもの、対応する名前がない伏せ字を含むものは捨てる(最大3件)。"""
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        facts = data.get("facts") if isinstance(data, dict) else None
+    except ValueError:
+        return {}
+    if not isinstance(facts, dict):
+        return {}
+    out = {}
+    owner = facts.get("ownerName")
+    if isinstance(owner, str) and PLACEHOLDER.match(owner.strip()) and owner.strip().startswith("{person_") \
+            and owner.strip() in names:
+        out["ownerName"] = owner.strip()
+    real_names = [v for v in names.values() if v]
+    likes = []
+    raw_likes = facts.get("likes") if isinstance(facts.get("likes"), list) else []
+    for item in raw_likes[:MAX_LIKES * 2]:
+        if not isinstance(item, str) or not item.strip() or len(item.strip()) > MAX_LIKE_CHARS:
+            continue
+        item = item.strip()
+        if any(name in item for name in real_names):
+            continue
+        if any(p not in names for p in ANY_PLACEHOLDER.findall(item)):
+            continue
+        if item not in likes:
+            likes.append(item)
+    if likes:
+        out["likes"] = likes[:MAX_LIKES]
+    return out
+
+
+def merge_facts(old, new):
+    """前の事実に、新しい事実を重ねる。ownerName は新しいもので上書き、likes は足して、新しい方から最大3つ残す。"""
+    old, new = old or {}, new or {}
+    out = {}
+    owner = new.get("ownerName") or old.get("ownerName")
+    if owner:
+        out["ownerName"] = owner
+    likes = [x for x in old.get("likes", []) if x not in new.get("likes", [])] + list(new.get("likes", []))
+    if likes:
+        out["likes"] = likes[-MAX_LIKES:]
+    return out
+
+
+def read_facts(db, uid, pet_id):
+    """その飼い主の、このペットについての大事な事実。なければ {}。"""
+    if not uid:
+        return {}
+    snap = db.collection("users").document(uid).collection("petFacts").document(pet_id).get()
+    d = snap.to_dict() if snap.exists else {}
+    return {k: d[k] for k in ("ownerName", "likes") if d.get(k)}
 
 
 def read_name_map(db, uid, pet_id):
@@ -151,7 +217,8 @@ def rebuild_cache(db, pet_id, owner_uid, generation, now):
     """今の飼い主の思い出(items)と、前の飼い主たちの思い出(pastItems)を作り直して、置き場に書く。"""
     items, past = select_memories(read_memories(db, pet_id), owner_uid, generation)
     db.collection("pets").document(pet_id).collection("memoryCache").document("current").set(
-        {"ownerUid": owner_uid, "generation": generation, "items": items, "pastItems": past, "updatedAt": now})
+        {"ownerUid": owner_uid, "generation": generation, "items": items, "pastItems": past,
+         "facts": read_facts(db, owner_uid, pet_id), "updatedAt": now})
     return items
 
 
@@ -176,6 +243,11 @@ def summarize_memories(db, pet_id, generation, ask_ai, now, force=False, run_tx=
         memories, new_names = parse_memories(raw, known, today)
         if new_names:
             db.collection("users").document(owner).collection("nameMaps").document(pet_id).set({**known, **new_names})
+        new_facts = parse_facts(raw, {**known, **new_names})
+        if new_facts:  # 大事な事実は、要約とは別に残す(思い出が無い回でも)
+            old_facts = read_facts(db, owner, pet_id)
+            db.collection("users").document(owner).collection("petFacts").document(pet_id).set(
+                {**merge_facts(old_facts, new_facts), "updatedAt": now})
         for m in memories:
             when = datetime(m["occurred_on"].year, m["occurred_on"].month, m["occurred_on"].day, 12, tzinfo=JST)
             db.collection("pets").document(pet_id).collection("memories").document().set(
@@ -197,15 +269,17 @@ def load_talk_context(db, uid, pet_id, pet):
     """会話のとき、AIに付ける材料。今の飼い主・今の代の分だけ。失敗しても、空を返す。"""
     try:
         cache = db.collection("pets").document(pet_id).collection("memoryCache").document("current").get()
-        memories, past = [], []
+        memories, past, facts = [], [], None
         c = cache.to_dict() if cache.exists else None
         if c and c.get("ownerUid") == uid and c.get("generation") == pet.get("generation", 1):
             memories, past = list(c.get("items", [])), list(c.get("pastItems", []))
+            facts = c.get("facts")  # 古い置き場には無い。そのときは、直接読む
         else:
             # 交換のすぐあとなど、置き場がまだ新しい飼い主用になっていない。保存済みの思い出から、その場で選ぶ(書かない)
             memories, past = select_memories(read_memories(db, pet_id), uid, pet.get("generation", 1))
         return {"memories": memories, "pastMemories": past, "nameMap": read_name_map(db, uid, pet_id),
-                "journeys": list(pet.get("journeys") or [])}
+                "journeys": list(pet.get("journeys") or []),
+                "facts": facts if isinstance(facts, dict) else read_facts(db, uid, pet_id)}
     except Exception as e:
         logging.error("思い出の読み込みに失敗しました: %s: %s", type(e).__name__, str(e)[:300])
         return {}
