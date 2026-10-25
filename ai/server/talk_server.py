@@ -92,7 +92,8 @@ class TalkRequest(BaseModel):
     # ---- ペットの情報（どれも省略可）
     petName: Optional[str] = None
     personalityAxes: Optional[Dict[str, float]] = None  # 6軸の値
-    humanness: Optional[float] = None                 # 0・0.5・1。無ければ育った段階
+    stage: Optional[str] = None                       # 姿の段階 baby・child・adult（バックエンドが送る）。humanness より優先
+    humanness: Optional[float] = None                 # 0・0.5・1。stage も humanness も無ければ育った段階
     birthTrait: Optional[str] = None                  # 誕生時に一番強かった軸
     firstPerson: str = "ぼく"
     ownerStyle: Optional[str] = None                  # 標準・関西弁・敬語・若者言葉、または話し方の説明文

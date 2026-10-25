@@ -17,6 +17,20 @@ PAST_RE = re.compile(r"前の(?:飼い主|かいぬし|人|ひと|おうち|家|
 RECALL_RE = re.compile(r"覚えてる|おぼえてる|覚えてない|おぼえてない|覚えている|思い出|おもいで|思いだ|(?:た|だ|してた|った)っけ"
                        r"|前の飼い主|まえのかいぬし|最初の飼い主|さいしょのかいぬし|前はどこ|前にいた|どこにいた")
 NOT_RECALL_RE = re.compile(r"覚えてね|覚えておいて|覚えといて|おぼえてね|おぼえといて")
+# 飼い主自身のこと（名前・好きなもの）を覚えているか聞いている。両方そろったら思い出（talk_route.py）
+OWNER_ASK_RE = re.compile(r"(?:ぼく|僕|俺|おれ|わたし|私|あたし|うち|自分)の(?:名前|なまえ|好きな|好物)")
+OWNER_ASK_VERB_RE = re.compile(r"覚えて|わかる|知って|だっけ")
+# ペット自身のこと（名前・好きなもの）。思い出にしない・飼い主の名前や facts を使わない
+PET_ASK_RE = re.compile(r"(?:きみ|君|お前|おまえ|あなた)の(?:名前|なまえ|好き)")
+
+
+def asks_owner(text: str) -> bool:
+    t = unicodedata.normalize("NFKC", text)
+    return bool(OWNER_ASK_RE.search(t) and OWNER_ASK_VERB_RE.search(t))
+
+
+def asks_pet(text: str) -> bool:
+    return bool(PET_ASK_RE.search(unicodedata.normalize("NFKC", text)))
 
 
 def memory_kind(text: str) -> str:

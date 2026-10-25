@@ -182,6 +182,15 @@ def stage_from_humanness(h: Optional[float]) -> int:
     return 1 if h < 0.25 else 2 if h < 0.75 else 3
 
 
+STAGE_NAMES = {"baby": 1, "child": 2, "adult": 3}   # バックエンドの姿の段階（growth.py の STAGES）→ 段階
+
+
+def stage_from_request(stage: Optional[str], humanness: Optional[float]) -> int:
+    """バックエンドの stage（baby・child・adult）を最優先。無い・知らない値なら humanness、それも無ければ育った"""
+    s = STAGE_NAMES.get(str(stage or "").strip().lower())
+    return s if s is not None else stage_from_humanness(humanness)
+
+
 def top_axes(axes: Dict[str, float], k: int) -> List[str]:
     """値の大きい順に k 軸（0 の軸は除く）。同じ値なら AXIS_ORDER で先のもの。"""
     order = sorted(AXIS_ORDER, key=lambda a: (-axes.get(a, 0.0), AXIS_ORDER.index(a)))
@@ -260,7 +269,7 @@ class PetProfile:
         return cls(
             name=req.petName or PET_NAME,
             axes=axes,
-            stage=stage_from_humanness(req.humanness),
+            stage=stage_from_request(getattr(req, "stage", None), req.humanness),
             birth_trait=AXIS_ALIASES.get(req.birthTrait or ""),
             first_person=req.firstPerson or "ぼく",
             owner_style=OWNER_STYLES.get(style, style),

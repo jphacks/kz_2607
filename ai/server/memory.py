@@ -62,12 +62,12 @@ import mem_config as C
 from common import TZ, PetProfile
 from mem_check import LEFTOVER_RE, check_reaction, memory_check, trim_to_memory  # noqa: F401
 from mem_embed import Embedder, lexical_sim  # noqa: F401
-from mem_kind import date_range, day_label, is_recall, is_time_question, memory_kind  # noqa: F401
+from mem_kind import asks_pet, date_range, day_label, is_recall, is_time_question, memory_kind  # noqa: F401
 from mem_names import norm_name_map, unmask  # noqa: F401
 from mem_past import (journey_items, journey_lines, order_by_question, parse_past_memories,  # noqa: F401
                       pick_journey, target_generation)
-from mem_select import (content_words, key_hit, parse_facts, parse_memories, pick_facts, recent_items,  # noqa: F401
-                        select_memories, select_newest)
+from mem_select import (FACT_ASK_RE, FACT_TOPIC_RE, content_words, fact_question_key, key_hit,  # noqa: F401
+                        parse_facts, parse_memories, pick_facts, recent_items, select_memories, select_newest)
 from mem_text import (_ends_past, build_extra, build_hint, build_react_hint, build_rewrite_hint,  # noqa: F401
                       dont_know_reply, fact_say, fallback_reaction, past_memory_say, template_reply)
 
@@ -113,7 +113,21 @@ class MemoryTalk:
                 info["_says"] = [past_memory_say(picked[0]["text"], "past", p)]
                 return lines, info, ""
             picked = [m for m in picked if not m.get("past")]
-            labels = ["さっき" if m.get("recent") else day_label(m["date"], today) for m in picked]
+            if asks_pet(user_text):
+                # 「きみの名前覚えてる？」：ペット自身のこと。飼い主の名前・名前や好きなものの話（「ぼくの名前はゆうとだよ」）は使わない
+                names = [n for n in name_map.values() if len(n) >= 2]
+                picked = [m for m in picked if not any(n in m["text"] for n in names) and not FACT_TOPIC_RE.search(m["text"])]
+                info["pet_ask"], info["picked"] = True, [m["id"] for m in picked]
+            elif not pick_facts(user_text, facts or []):
+                # 名前・好きなものを聞かれて facts で答えられない（要約がまだ届いていない）→ 直近の飼い主の発言のうち、
+                # 「名前」「好き」を含むものを候補にする（中身の言葉の照合・近さに頼らない）
+                key = fact_question_key(user_text)
+                rec = [m for m in recent if key and FACT_ASK_RE[key].search(m["text"])]
+                if rec:
+                    picked = rec[:C.MEMORY_TOPK]
+                    info["recent_fact"], info["picked"] = key, [m["id"] for m in picked]
+                    info.pop("why", None)
+            labels =["さっき" if m.get("recent") else day_label(m["date"], today) for m in picked]
             lines = [(f"さっき、「{m['text']}」と話してくれた" if m.get("recent") else (f"{lb}、" if lb else "") + m["text"])
                      for m, lb in zip(picked, labels)]
             if picked and picked[0].get("recent"):       # 決まった返事は、言った言葉をそのまま引用する（話した順）
@@ -189,7 +203,8 @@ class MemoryTalk:
         kind = memory_kind(user_text)
         if past_hint and kind == "current":
             kind = "past"
-        fact_items = parse_facts(facts, name_map) if kind == "current" else []   # 前の代の話には入れない
+        # 前の代の話・ペット自身のこと（「きみの名前覚えてる？」）には入れない
+        fact_items = parse_facts(facts, name_map) if kind == "current" and not asks_pet(user_text) else []
         fact_lines = [f["line"] for f in fact_items]
         lines, info, label = self.materials(kind, p, user_text, memories, name_map, journeys, today, past_memories, hist,
                                             summarized_seq, fact_items)

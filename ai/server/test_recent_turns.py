@@ -457,6 +457,115 @@ class ExchangeTest(unittest.TestCase):
                           past_memories=exchanged(cases[0][0])[0])[0]
         self.assertEqual(r, "まえのかいぬしさんがひやしちゅうかをたべたってはなしてくれたことだよっ！")
 
+class StageTest(unittest.TestCase):
+    """段階：バックエンドの stage（baby・child・adult）を最優先。無ければ humanness、それも無ければ育った。"""
+
+    def test_from_request(self):
+        def stage(**kw):
+            return PetProfile.from_request(TalkRequest(text="x", **kw)).stage
+        self.assertEqual([stage(stage="baby"), stage(stage="child"), stage(stage="adult")], [1, 2, 3])
+        self.assertEqual(stage(stage="baby", humanness=1.0), 1)            # stage が先
+        self.assertEqual(stage(stage="?", humanness=0.0), 1)               # 知らない値なら humanness
+        self.assertEqual(stage(humanness=0.5), 2)
+        self.assertEqual(stage(), 3)
+
+    def test_talk_baby(self):
+        saved = (M.judge, M.memory)
+        M.judge, M.memory = FakeJudge(), MemoryTalk(RecordChat(), Embedder(mode=EMBED_MODE))
+        try:
+            r = call(petId="ps", text=ASK_TEXT, want_learn=False, stage="baby", recentTurns=[], facts=FACTS, nameMap=NAME_MAP)
+            self.assertEqual((r["persona"]["stage"], r["reply_text"]), (1, "きみのなまえはゆうとだよっ！"))   # 性格の軸なし → 口ぐせ「〜だよっ！」
+        finally:
+            M.judge, M.memory = saved
+            talk_state.history.clear()
+
+
+class RouteTest(unittest.TestCase):
+    """振り分けの上書き：飼い主自身のこと → 思い出、ペット自身のこと → ペット自身。"""
+
+    @staticmethod
+    def route(text, action):
+        from talk_route import adjust_action
+        j = {"action": action}
+        adjust_action(j, text)
+        return j["action"]
+
+    def test_owner(self):
+        for text in ["ぼくの名前、覚えてる？", "俺の名前わかる？", "ぼくの好きなもの、覚えてる？", "わたしの名前知ってる？",
+                     "おれの好物なんだっけ"]:
+            for action in ["ペット自身", "雑談", "思い出", "込み入った質問"]:
+                with self.subTest(text=text, action=action):
+                    self.assertEqual(self.route(text, action), "思い出")
+        self.assertEqual(self.route("ぼくの名前、覚えてる？", "安全な返事"), "安全な返事")    # 危ない発言は変えない
+        self.assertEqual(self.route("ぼくの名前はゆうとだよ", "雑談"), "雑談")                 # 聞いていない
+
+    def test_pet(self):
+        for text in ["きみの名前、覚えてる？", "お前の名前覚えてる？", "あなたの好きなもの覚えてる？"]:
+            for action in ["思い出", "雑談", "ペット自身", "思い出（検索して無ければ雑談）"]:
+                with self.subTest(text=text, action=action):
+                    self.assertEqual(self.route(text, action), "ペット自身")
+
+    def test_unspecified_unchanged(self):
+        """誰のことか書いていない「名前覚えてる？」は今までどおり（案2はまだ入れない）。"""
+        self.assertEqual(self.route("名前覚えてる？", "ペット自身"), "ペット自身")
+        self.assertEqual(self.route("名前覚えてる？", "雑談"), "思い出")
+
+
+class FactQuestionTest(unittest.TestCase):
+    """facts が無いとき（要約がまだ届いていない6回目）、名前・好きなものは直近の会話の飼い主の発言から答える。"""
+
+    def setUp(self):
+        self.chat = RecordChat()
+        self.mt = MemoryTalk(self.chat, Embedder(mode=EMBED_MODE))
+        self.hist = RecentSelectTest.turns([NAME_TEXT, "いちごのアイスが好きなんだ", "今日は公園で散歩したよ",
+                                            "学校で数学のテストがあった", "夜ごはんはカレーだった"])
+
+    def ask(self, text, facts=None):
+        return self.mt.reply(PetProfile(stage=3), self.hist, text, [], NAME_MAP, facts=facts)
+
+    def test_likes_from_recent(self):
+        r, g, persona = self.ask("ぼくの好きなもの、覚えてる？")
+        self.assertTrue(r.startswith("うん、覚えてるよ！さっき「いちごのアイスが好きなんだ」って話してくれたよね。"), r)
+        self.assertEqual(persona["memory"]["recent_fact"], "likes")
+
+    def test_name_from_recent(self):
+        r, _, persona = self.ask("俺の名前わかる？")
+        self.assertIn("ゆうと", r)
+        self.assertEqual(persona["memory"]["recent_fact"], "ownerName")
+
+    def test_facts_first(self):
+        r, _, persona = self.ask("ぼくの好きなもの、覚えてる？", facts=FACTS)      # facts があれば facts で答える
+        self.assertEqual(persona["memory"]["fact_picked"], ["likes"])
+        self.assertNotIn("recent_fact", persona["memory"])
+
+    def test_other_like_question(self):
+        """「公園好きだったっけ？」は好きなものを聞いていないので、直近の「好き」で答えない。"""
+        _, _, persona = self.ask("公園好きだったっけ？")
+        self.assertNotIn("recent_fact", persona["memory"])
+
+    def test_pet_ask_in_memory(self):
+        """思い出の経路に「きみの名前覚えてる？」が来ても、飼い主の名前・facts を使わない。"""
+        r, _, persona = self.ask("きみの名前、覚えてる？", facts=FACTS)
+        self.assertNotIn("ゆうと", r)
+        self.assertEqual(persona["memory"]["facts"], [])
+        self.assertTrue(all("ゆうと" not in e for e in self.chat.extras))
+
+    def test_sixth_turn_talk(self):
+        """/talk から：1回目に名前、2回目に好きなもの → 6回目に「ぼくの好きなもの、覚えてる？」（facts・要約なし）。"""
+        saved = (M.judge, M.chat, M.memory)
+        M.judge, M.chat, M.memory = FakeJudge(), FakeChat(ready=True), MemoryTalk(RecordChat(), Embedder(mode=EMBED_MODE))
+        try:
+            b = Backend("p6l")
+            for t in [NAME_TEXT, "いちごのアイスが好きなんだ"] + chat_texts(3):
+                b.send(t)
+            r = b.send("ぼくの好きなもの、覚えてる？")
+            self.assertEqual(r["route"], "思い出")
+            self.assertIn("いちごのアイス", r["reply_text"])
+        finally:
+            M.judge, M.chat, M.memory = saved
+            talk_state.history.clear()
+
+
 if __name__ == "__main__":
     talk_server.log_talk = lambda *a, **k: None    # 1行ログは出さない
     unittest.main(verbosity=2)

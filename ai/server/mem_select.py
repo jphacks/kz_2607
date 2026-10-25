@@ -18,6 +18,10 @@ FACT_MAX_CHARS = 30
 # 事実を選ぶ質問の言葉（近さは使わない）。「きみの名前」などペット自身のことは、ペット自身・プロフィールで答えるので選ばない
 FACT_ASK_RE = {"ownerName": re.compile(r"名前|なまえ|呼び方|よびかた"), "likes": re.compile(r"好き|すき|好物")}
 FACT_PET_RE = re.compile(r"きみの|君の|キミの|お前の|おまえの|あなたの")
+FACT_TOPIC_RE = re.compile(r"名前|なまえ|呼び方|よびかた|好き|すき|好物")
+# facts が無いとき、直近の会話から答える質問（「好き」だけだと「公園好きだったっけ？」も当たるので、しぼる）
+FACT_QUESTION_RE = {"ownerName": re.compile(r"名前|なまえ|呼び方|よびかた"),
+                    "likes": re.compile(r"好きなもの|好きな物|好きなこと|すきなもの|好物")}
 # 直近の会話（history）を思い出の候補にするとき、外す発言
 RECENT_SKIP_RE = re.compile(r"^(?:ただいま|おかえり|おはよう|おやすみ|こんにちは|こんばんは|ありがとう|うん|はい|いいえ|そう|へえ|"
                             r"なるほど|ばいばい|またね|よろしく)")
@@ -140,6 +144,14 @@ def pick_facts(text: str, facts: List[dict]) -> List[dict]:
     if FACT_PET_RE.search(t):
         return []
     return [f for f in facts if f["key"] in FACT_ASK_RE and FACT_ASK_RE[f["key"]].search(t)]
+
+
+def fact_question_key(text: str) -> Optional[str]:
+    """名前（ownerName）・好きなもの（likes）を聞いている質問なら、その種類。ペット自身のことなら None"""
+    t = unicodedata.normalize("NFKC", text)
+    if FACT_PET_RE.search(t):
+        return None
+    return next((k for k, rx in FACT_QUESTION_RE.items() if rx.search(t)), None)
 
 
 def select_memories(embedder: Embedder, text: str, items: List[dict], name_map: Dict[str, str],

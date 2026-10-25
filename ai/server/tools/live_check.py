@@ -120,9 +120,10 @@ class Pet:
         return js
 
 
-def scenario_name(c, stage_name, humanness=None):
-    """1回目に名前を教える → 6回目（要約はまだ届いていない）・11回目（1〜5回目の要約と facts が届いた）に聞く。"""
-    extra = {"humanness": humanness, "stage": stage_name} if humanness is not None else {}
+def scenario_name(c, stage_name, stage):
+    """1回目に名前を教える → 6回目（要約はまだ届いていない）・11回目（1〜5回目の要約と facts が届いた）に聞く。
+    stage はバックエンドと同じ baby・child・adult"""
+    extra = {"stage": stage}
     pet = Pet(c, f"live-{stage_name}-{int(time.time())}")
     pet.say("ぼくの名前はゆうとだよ", **extra)
     for t in CHAT_TURNS[:4]:
@@ -148,7 +149,7 @@ def scenario_exchange(c):
         past = [{"id": "p1", "text": text, "generation": 1, "createdAt": noon_today()}]
         journeys = [{"generation": 1, "summary": "夏の話をよくした", "timeOfDay": "夜", "talkCount": 6}]
         for q in EXCHANGE_PROBES:
-            c.probe(f"交換直後・{label}", {"petId": pet_id, "text": q, "generation": 2, "recentTurns": [],
+            c.probe(f"交換直後・{label}", {"petId": pet_id, "text": q, "generation": 2, "recentTurns": [], "stage": "adult",
                                          "pastMemories": past, "journeys": journeys, "nameMap": NAME_MAP,
                                          "facts": {"ownerName": "{person_1}"}}, [word, "!ゆうと", "!昨日"])
 
@@ -206,9 +207,9 @@ def main():
         print("※ 判定モデルか 8081 の性格LoRA が読めていません。結果は本物のモデルになりません", file=sys.stderr)
     only = set(args.only.split(","))
     if "name" in only:
-        scenario_name(c, "育った")
+        scenario_name(c, "育った", "adult")
     if "baby" in only:
-        scenario_name(c, "赤ちゃん", humanness=0.0)
+        scenario_name(c, "赤ちゃん", "baby")
     if "exchange" in only:
         scenario_exchange(c)
     md = table(c.rows)
