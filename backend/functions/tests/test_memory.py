@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fakes import FakeDb, run_tx  # noqa: E402
 from petlogic.exchange import report_exchange  # noqa: E402
 from petlogic.journey import (add_journey_summary, finish_journeys, start_journeys, time_of_day)  # noqa: E402
-from petlogic.memory import (BATCH_TURNS, rebuild_cache, refresh_cache, build_user_prompt, load_talk_context, parse_memories,  # noqa: E402
+from petlogic.memory import (BATCH_TURNS, merge_facts, parse_facts, read_facts, rebuild_cache, refresh_cache, build_user_prompt, load_talk_context, parse_memories,  # noqa: E402
                              summarize_memories)
 from petlogic.register import register_device  # noqa: E402
 from petlogic.talk import build_ai_payload  # noqa: E402
@@ -292,3 +292,89 @@ def test_talk_context_reads_memories_even_before_the_new_owners_cache_exists():
     assert db.docs[(f"pets/{pet}/memoryCache", "current")]["ownerUid"] == "uA"  # 読むだけで、書かない
     ctx2 = load_talk_context(db, "uA", pet, {"generation": 3})  # 元の飼い主に戻ったら、昔の分が自分の思い出に
     assert [m["text"] for m in ctx2["memories"]] == ["{shop_1}でアイスを食べた"] and ctx2["pastMemories"] == []
+
+
+# ---- 大事な事実(facts) ----
+def reply_facts(facts, memories=None, new_names=None):
+    return json.dumps({"memories": memories or [], "new_names": new_names or {}, "facts": facts}, ensure_ascii=False)
+
+
+NAMES = {"{person_1}": "たろう", "{food_1}": "ミスドのドーナツ"}
+
+
+def test_parse_facts_accepts_valid_owner_name_and_likes():
+    raw = reply_facts({"ownerName": "{person_1}", "likes": ["いちごのアイス", "犬", "海", "四つ目"]})
+    assert parse_facts(raw, NAMES) == {"ownerName": "{person_1}", "likes": ["いちごのアイス", "犬", "海"]}
+
+
+@pytest.mark.parametrize("facts,expected", [
+    ({"ownerName": "たろう"}, {}),  # 伏せ字になっていない
+    ({"ownerName": "{person_9}"}, {}),  # 対応する名前がない
+    ({"ownerName": "{shop_1}"}, {}),  # person 以外
+    ({"ownerName": None, "likes": []}, {}),
+    ({"likes": ["たろうの家"]}, {}),  # 本当の名前が残っている
+    ({"likes": ["{food_9}"]}, {}),  # 解決できない伏せ字
+    ({"likes": ["あ" * 21, "", 5]}, {}),  # 長すぎる・空・文字でない
+    ({"likes": "アイス"}, {}),  # 配列でない
+    ({"likes": ["{food_1}"]}, {"likes": ["{food_1}"]}),  # 解決できる伏せ字はそのまま
+    ("facts", {}),
+])
+def test_parse_facts_drops_bad_values(facts, expected):
+    assert parse_facts(reply_facts(facts), NAMES) == expected
+
+
+def test_parse_facts_without_facts_or_bad_json_is_empty():
+    assert parse_facts(reply([]), NAMES) == {}
+    assert parse_facts("これはJSONではない", NAMES) == {}
+
+
+def test_merge_facts_overwrites_owner_name_and_keeps_newest_three_likes():
+    old = {"ownerName": "{person_1}", "likes": ["A", "B", "C"]}
+    assert merge_facts(old, {"ownerName": "{person_2}", "likes": ["D"]}) == {"ownerName": "{person_2}", "likes": ["B", "C", "D"]}
+    assert merge_facts(old, {"likes": ["B"]}) == {"ownerName": "{person_1}", "likes": ["A", "C", "B"]}  # 同じものは新しい方へ
+    assert merge_facts({}, {}) == {}
+
+
+def test_summarize_saves_facts_separately_and_puts_them_in_cache_and_context():
+    db, pet = setup()
+    summarize_memories(db, pet, 1, lambda s, u: reply_facts(
+        {"ownerName": "{person_1}", "likes": ["いちごのアイス"]}, [], {"{person_1}": "たろう"}), NOW, run_tx=run_tx)
+    saved = db.docs[("users/u1/petFacts", pet)]
+    assert saved["ownerName"] == "{person_1}" and saved["likes"] == ["いちごのアイス"]  # 思い出が無い回でも残る
+    assert db.docs[(f"pets/{pet}/memoryCache", "current")]["facts"] == {"ownerName": "{person_1}", "likes": ["いちごのアイス"]}
+    ctx = load_talk_context(db, "u1", pet, db.docs[("pets", pet)])
+    assert ctx["facts"] == {"ownerName": "{person_1}", "likes": ["いちごのアイス"]}
+    assert build_ai_payload("x", pet, {"generation": 1}, NOW, ctx)["facts"]["ownerName"] == "{person_1}"
+
+
+def test_facts_accumulate_across_summaries():
+    db, pet = setup()
+    summarize_memories(db, pet, 1, lambda s, u: reply_facts({"ownerName": "{person_1}", "likes": ["A"]}, [], {"{person_1}": "たろう"}),
+                       NOW, run_tx=run_tx)
+    for i in range(BATCH_TURNS):
+        record_turn(db, pet, 1, f"続き{i}", f"返{i}", NOW, run_tx, uid="u1")
+    summarize_memories(db, pet, 1, lambda s, u: reply_facts({"ownerName": None, "likes": ["B"]}), NOW, run_tx=run_tx)
+    assert read_facts(db, "u1", pet) == {"ownerName": "{person_1}", "likes": ["A", "B"]}
+
+
+def test_facts_are_not_given_to_the_next_owner_but_return_with_the_old_one():
+    db, pet = setup()
+    summarize_memories(db, pet, 1, lambda s, u: reply_facts({"ownerName": "{person_1}", "likes": ["A"]}, [], {"{person_1}": "たろう"}),
+                       NOW, run_tx=run_tx)
+    pet_doc = db.docs[("pets", pet)]
+    assert load_talk_context(db, "u2", pet, {**pet_doc, "generation": 2})["facts"] == {}
+    rebuild_cache(db, pet, "u2", 2, NOW)
+    assert db.docs[(f"pets/{pet}/memoryCache", "current")]["facts"] == {}
+    rebuild_cache(db, pet, "u1", 1, NOW)
+    assert db.docs[(f"pets/{pet}/memoryCache", "current")]["facts"]["ownerName"] == "{person_1}"
+
+
+def test_talk_context_reads_facts_when_old_cache_has_no_facts_key():
+    db, pet = setup()
+    db.docs[("users/u1/petFacts", pet)] = {"ownerName": "{person_1}", "likes": ["A"]}
+    db.docs[(f"pets/{pet}/memoryCache", "current")] = {"ownerUid": "u1", "generation": 1, "items": [], "pastItems": []}
+    assert load_talk_context(db, "u1", pet, db.docs[("pets", pet)])["facts"]["likes"] == ["A"]
+
+
+def test_payload_omits_empty_facts():
+    assert "facts" not in build_ai_payload("x", "p", {"generation": 1}, NOW, {"facts": {}})
