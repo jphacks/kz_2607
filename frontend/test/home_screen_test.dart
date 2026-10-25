@@ -72,7 +72,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('確定した交換結果を見る'));
       await tester.pumpAndSettle();
-      expect(find.text('交換結果の表示は準備中です。'), findsOneWidget);
+      expect(find.text('M5に接続すると、保存済みの交換結果を確認できます。'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
