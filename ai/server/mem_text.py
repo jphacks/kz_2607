@@ -59,6 +59,16 @@ def dont_know_reply(kind: str, p: PetProfile, only_owner: bool = False) -> str:
     return random.choice(DONT_KNOW[k]).format(fp=p.first_person)
 
 
+def fact_say(f: dict, p: PetProfile) -> str:
+    """事実（parse_facts の1件）を聞かれたときの決まった文。template_reply の says[0] に使う。
+    赤ちゃんは一文・句読点なし（baby_talk.py は最初の一文だけ残すので）"""
+    w = f["words"]
+    if f["key"] == "ownerName":
+        return f"きみのなまえは{w[0]}だよね" if p.stage == 1 else f"うん、覚えてるよ！きみの名前は{w[0]}だよね"
+    likes = "と".join(w)
+    return f"きみは{likes}がすきだよね" if p.stage == 1 else f"うん、覚えてるよ！きみは{likes}が好きなんだよね"
+
+
 def template_reply(kind: str, lines: List[str], p: PetProfile, label: str = "", says: Optional[List[str]] = None) -> str:
     """思い出の1行目だけで作る決まった返事。前の代は journey_items の say（質問に合う値が先頭）を使う。
     今の飼い主で says[0] があるのは直近の会話（まだ要約されていない発言）を引用するとき"""
@@ -96,15 +106,22 @@ RULES = (
 )
 RULES_PAST = "\n- 今の飼い主さんの名前や、今の飼い主さんとの思い出は話さない"
 RULES_BABY = "\n- 一文で答える"
+RULES_FACTS = "\n- 【いつも覚えていること】に書いてあることも使ってよい"
+FACTS_HEAD = "【いつも覚えていること】（いまの飼い主さんのこと）"
 
 
-def build_extra(kind: str, lines: List[str], p: PetProfile) -> str:
+def build_extra(kind: str, lines: List[str], p: PetProfile, facts: Optional[List[str]] = None) -> str:
+    """facts … 今の飼い主の大事な事実の行（parse_facts）。今の飼い主の話（current）のときだけ、毎回入れる"""
+    facts = facts if kind == "current" else None
     rules = RULES.format(fp=p.first_person) + (RULES_PAST if kind != "current" else "") + \
-        (RULES_BABY if p.stage == 1 else "")
+        (RULES_FACTS if facts else "") + (RULES_BABY if p.stage == 1 else "")
     head = {"current": "【覚えていること】（いまの飼い主さんとの思い出）",
             "past": "【覚えていること】（前の飼い主さんとの思い出）",
             "first": "【覚えていること】（最初の飼い主さんとの思い出）"}[kind]
-    return rules + "\n\n" + head + "\n" + "\n".join(f"- {ln}" for ln in lines)
+    text = rules + "\n\n" + head + "\n" + "\n".join(f"- {ln}" for ln in lines)
+    if facts:
+        text += "\n\n" + FACTS_HEAD + "\n" + "\n".join(f"- {ln}" for ln in facts)
+    return text
 
 
 def build_rewrite_hint(sentence: str) -> str:

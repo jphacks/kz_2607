@@ -22,7 +22,7 @@ def make_reply(action: str, req, profile: PetProfile, hist: List[dict], user_tex
     if action == "思い出":
         try:
             r = M.memory.reply(profile, hist, user_text, req.memories, req.nameMap, req.journeys, past_hint=past_hint,
-                               past_memories=req.pastMemories)
+                               past_memories=req.pastMemories, summarized_seq=req.summarizedSeq, facts=req.facts)
             if not (memory_or_chat and r[1] == "memory-dontknow"):
                 return r
             action = "雑談"                  # 迷っていたときは「覚えてない」より雑談で返す（下の雑談へ）

@@ -70,8 +70,9 @@ REACT_LEAD_RE = re.compile(r"^えっ[、！!]\s*")                              
 
 
 def check_reaction(text: str, lines: List[str], names: List[str], p: PetProfile,
-                   fact: str = "") -> Tuple[str, List[str]]:
-    """気持ちの一言（1文目）を取り出して確かめる。返り値: (一言, 外した理由)。理由があれば一言は使わない。"""
+                   fact: str = "", facts: List[str] = ()) -> Tuple[str, List[str]]:
+    """気持ちの一言（1文目）を取り出して確かめる。返り値: (一言, 外した理由)。理由があれば一言は使わない。
+    facts … 今の飼い主の大事な事実の行（【いつも覚えていること】）。その言葉は一言に出てきてよい"""
     sents = [REACT_LEAD_RE.sub("", x) for x in split_sentences(text or "")]
     while sents and (not sents[0] or REACT_SKIP_RE.search(unicodedata.normalize("NFKC", sents[0]))):
         sents = sents[1:]                               # 「うん、覚えてるよ！」だけの文は飛ばして次の文を見る
@@ -98,7 +99,7 @@ def check_reaction(text: str, lines: List[str], names: List[str], p: PetProfile,
         reasons.append("覚えてないと言った")
     if re.search(r"[?？]$", t) and not re.search(r"(?:ね|よ|な)[?？]$", t):
         reasons.append("聞き返している")
-    allowed = "".join(lines) + "".join(names) + p.name + p.first_person
+    allowed = "".join(lines) + "".join(facts) + "".join(names) + p.name + p.first_person
     for w in re.findall(r"[一-龥々]{2,}|[ァ-ヶー]{2,}", t):          # 思い出に無い名詞（作り話のもと）
         if w not in allowed and not any(w.startswith(k) or k in w for k in REACT_OK_WORDS):
             reasons.append(f"思い出に無い言葉「{w}」")

@@ -38,8 +38,10 @@ def forget_if_new_generation(pet_id: str, generation) -> None:
         _last_gen[pet_id] = gen
 
 
-def get_history(pet_id: str, sent: Optional[List[dict]]) -> List[dict]:
-    """送られてきた history があればそれ、無ければサーバーが覚えている分。"""
+def get_history(pet_id: str, recent: Optional[List[dict]], sent: Optional[List[dict]]) -> List[dict]:
+    """直前の会話。recentTurns（バックエンド）> 送られてきた history > サーバーが覚えている分 の順。"""
+    if recent is not None:
+        return recent
     return sent if sent is not None else history[pet_id]
 
 

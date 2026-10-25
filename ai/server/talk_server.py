@@ -75,9 +75,15 @@ class Turn(BaseModel):
     text: str
 
 
+class RecentTurn(Turn):
+    seq: Optional[int] = None   # バックエンドの会話の番号（summarizedSeq 以下は要約済み）
+
+
 class TalkRequest(BaseModel):
     petId: str = "demo"
     text: str                           # 飼い主の発言（Cloud Functions が音声から変換した文字）
+    recentTurns: Optional[List[RecentTurn]] = None  # 今の代の直近5往復（今の発言は入れない・古い順）。history より優先
+    summarizedSeq: Optional[int] = None  # この seq 以下の会話は要約済み（memories に入っている）
     history: Optional[List[Turn]] = None  # 送られてきたらサーバーの記憶より優先
     style: Optional[str] = None         # base_llm.OWNERS のキー（8080 で返すとき）
     learned_words: Optional[List[str]] = None   # ペットが覚えている言葉（最新20個）。learnedWords でも可
@@ -101,6 +107,7 @@ class TalkRequest(BaseModel):
     nameMap: Optional[Dict[str, Any]] = None          # 今の飼い主の伏せ字 → 本当の名前
     journeys: Optional[List[Dict[str, Any]]] = None   # 前の代との思い出（1代1件）
     pastMemories: Optional[List[Dict[str, Any]]] = None  # 前の代の思い出（ぼかし済み。直前の代 最大7件＋1代目 最大3件）
+    facts: Optional[Dict[str, Any]] = None            # 今の飼い主の大事な事実 {"ownerName": "{person_1}"|null, "likes": [最大3]}
 
 
 @app.get("/health")
@@ -139,7 +146,9 @@ def talk(req: TalkRequest, x_api_key: Optional[str] = Header(default=None)):
         user_text = req.text.strip()
 
         forget_if_new_generation(req.petId, req.generation)
-        hist = get_history(req.petId, [t.model_dump() for t in req.history] if req.history is not None else None)
+        hist = get_history(req.petId,
+                           [t.model_dump() for t in req.recentTurns] if req.recentTurns is not None else None,
+                           [t.model_dump() for t in req.history] if req.history is not None else None)
         profile = PetProfile.from_request(req)
 
         # 2. 判定
@@ -178,7 +187,7 @@ def talk(req: TalkRequest, x_api_key: Optional[str] = Header(default=None)):
                     errors.append(f"learn: {e}")
         ms["gen"] = (time.perf_counter() - t) * 1000
 
-        if req.history is None:
+        if req.recentTurns is None and req.history is None:   # 送られてこないときだけ（移行期間）サーバーが覚える
             remember(req.petId, hist, user_text, reply)
         ms["total"] = (time.perf_counter() - T0) * 1000
         pet_self = (persona or {}).get("self")

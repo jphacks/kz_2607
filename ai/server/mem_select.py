@@ -11,8 +11,13 @@ from common import to_date
 from mem_embed import Embedder
 from mem_kind import date_range
 from mem_kind import is_recall
-from mem_names import unmask
+from mem_names import MASK_RE, unmask
 
+FACT_LIKES_MAX = 3
+FACT_MAX_CHARS = 30
+# 事実を選ぶ質問の言葉（近さは使わない）。「きみの名前」などペット自身のことは、ペット自身・プロフィールで答えるので選ばない
+FACT_ASK_RE = {"ownerName": re.compile(r"名前|なまえ|呼び方|よびかた"), "likes": re.compile(r"好き|すき|好物")}
+FACT_PET_RE = re.compile(r"きみの|君の|キミの|お前の|おまえの|あなたの")
 # 直近の会話（history）を思い出の候補にするとき、外す発言
 RECENT_SKIP_RE = re.compile(r"^(?:ただいま|おかえり|おはよう|おやすみ|こんにちは|こんばんは|ありがとう|うん|はい|いいえ|そう|へえ|"
                             r"なるほど|ばいばい|またね|よろしく)")
@@ -21,14 +26,14 @@ KEY_RE = re.compile(r"[一-龥々]{2,}|[ァ-ヶー]{2,}|[A-Za-z]{2,}")
 KEY_SKIP = {"去年", "昨日", "今日", "今週", "先週", "先月", "最近", "一緒", "思い出", "前", "飼い主", "覚え", "何時", "何処"}
 
 # ---------------------------------------------------------------- 直近の会話（まだ要約されていない分）
-def recent_items(hist: Optional[List[dict]], user_text: str, n: Optional[int] = None) -> List[dict]:
-    """history の直近 n 発言のうち、飼い主の発言を思い出の候補にする（ペットの発言は作り話が混ざるので使わない）。
-    あいさつ・短い発言・質問・「覚えてる？」は外す。日付はわからないので None"""
-    n = C.MEMORY_RECENT_TURNS if n is None else n
-    if not hist or n <= 0:
+def recent_items(hist: Optional[List[dict]], user_text: str, summarized_seq: Optional[int] = None) -> List[dict]:
+    """受け取った直近の会話（recentTurns・history）すべてのうち、飼い主の発言を思い出の候補にする
+    （ペットの発言は作り話が混ざるので使わない）。あいさつ・短い発言・質問・「覚えてる？」は外す。日付はわからないので None。
+    summarized_seq … seq がこれ以下の発言は要約（memories）と重なるので外す。外すと0件になるときは外さない"""
+    if not hist:
         return []
     out, seen = [], {unicodedata.normalize("NFKC", user_text).strip()}
-    for i, t in enumerate(hist[-n:]):
+    for i, t in enumerate(hist):
         if not isinstance(t, dict) or t.get("speaker") not in ("owner", "飼い主"):
             continue
         text = unicodedata.normalize("NFKC", str(t.get("text") or "")).strip()
@@ -37,7 +42,11 @@ def recent_items(hist: Optional[List[dict]], user_text: str, n: Optional[int] = 
             continue
         seen.add(text)
         quote = re.split(r"(?<=[。！!])", text)[0].strip().rstrip("。！!").strip("「」")[:30]
-        out.append({"id": f"recent:{i}", "masked": quote, "text": quote, "date": None, "recent": True})
+        out.append({"id": f"recent:{i}", "masked": quote, "text": quote, "date": None, "recent": True, "seq": t.get("seq")})
+    if summarized_seq is not None:
+        fresh = [m for m in out if not (isinstance(m["seq"], int) and m["seq"] <= summarized_seq)]
+        if fresh:
+            out = fresh
     return out
 
 
@@ -61,20 +70,48 @@ def parse_memories(memories: Optional[List[Any]], name_map: Dict[str, str]) -> L
     return out
 
 
+def parse_facts(facts: Optional[Dict[str, Any]], name_map: Dict[str, str]) -> List[dict]:
+    """今の飼い主の大事な事実（facts：ownerName・likes）を【いつも覚えていること】の行にする。近さでは選ばない。
+    ownerName の伏せ字が nameMap に無いときは使わない（「あのお友だち」にぼかした名前で呼ばないように）"""
+    out = []
+    if not isinstance(facts, dict):
+        return out
+    name = str(facts.get("ownerName") or "").strip()
+    if name and all(m.group(0) in name_map for m in MASK_RE.finditer(name)):
+        real = unmask(name, name_map)[:FACT_MAX_CHARS]
+        out.append({"key": "ownerName", "line": f"飼い主さんの名前は{real}", "words": [real]})
+    likes = facts.get("likes")
+    likes = [unmask(str(x).strip(), name_map)[:FACT_MAX_CHARS] for x in (likes if isinstance(likes, list) else [])
+             if str(x or "").strip()][:FACT_LIKES_MAX]
+    if likes:
+        out.append({"key": "likes", "line": "飼い主さんの好きなもの：" + "・".join(likes), "words": likes})
+    return out
+
+
+def pick_facts(text: str, facts: List[dict]) -> List[dict]:
+    """今の発言で聞かれている事実（parse_facts の中から）。「名前」→ ownerName、「好き」→ likes"""
+    t = unicodedata.normalize("NFKC", text)
+    if FACT_PET_RE.search(t):
+        return []
+    return [f for f in facts if f["key"] in FACT_ASK_RE and FACT_ASK_RE[f["key"]].search(t)]
+
+
 def select_memories(embedder: Embedder, text: str, items: List[dict], name_map: Dict[str, str],
                     today: date, recent: Optional[List[dict]] = None) -> Tuple[List[dict], dict]:
     """今の発言に合う思い出を最大2件。返り値: (選んだもの, 記録)。
-    recent（直近の会話）は日付でしぼらず、近さか中身の言葉で選ぶ。要約された思い出があればそちらが先"""
+    recent（直近の会話）は日付でしぼらず、近さか中身の言葉で選ぶ。要約された思い出があればそちらが先。
+    要約された思い出が2件そろっても、直近の会話で合うものがあれば1件は残す（要約で具体的な言葉が落ちるので）"""
     picked, info = _select_saved(embedder, text, items, name_map, today)
     recent = recent or []
-    if not recent or len(picked) >= C.MEMORY_TOPK:
+    if not recent:
         return picked, info
     sims = embedder.scores(text, [(m["id"], m["text"]) for m in recent])
     order = sorted(zip(recent, sims), key=lambda x: -x[1])
     info["recent_scores"] = [(m["id"], m["text"], round(s, 3)) for m, s in order[:3]]
     hits = [m for m, s in order if s >= embedder.min_sim or key_hit(text, m["text"])]
     if hits:
-        picked = (picked + hits)[:C.MEMORY_TOPK] if picked else hits[:2]   # 直近だけなら2つまで（「大学に行った」「オックスフォード大学だ」）
+        # 要約された思い出は最大 TOPK−1 件にして、直近を1件以上入れる。直近だけなら2つまで（「大学に行った」「オックスフォード大学だ」）
+        picked = (picked[:C.MEMORY_TOPK - 1] + hits)[:C.MEMORY_TOPK] if picked else hits[:2]
         info.pop("why", None)
         info["picked"] = [m["id"] for m in picked]
     return picked, info
