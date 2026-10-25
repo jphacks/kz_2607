@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'birth_screen.dart';
 import 'core2_connection_screen.dart';
 import 'exchange_result_screen.dart';
 import 'letters_screen.dart';
@@ -8,9 +9,11 @@ import 'designsystem/action_button.dart';
 import 'designsystem/app_card.dart';
 import 'designsystem/bottom_navigation.dart';
 import 'designsystem/journey_gauge.dart';
+import 'designsystem/current_pet_portrait.dart';
 import 'foundation/app_colors.dart';
 import 'foundation/app_spacing.dart';
 import 'foundation/services/core2_ble.dart';
+import 'foundation/controllers/home_pet_controller.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.firstPet = WatchPet.firstCreatedSample});
@@ -19,11 +22,44 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  final _pet = HomePetController();
+  bool _wasBusy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  Core2Ble _ensureBle() {
+    if (_ble == null) {
+      _ble = Core2Ble();
+      _ble!.voiceCloud.addListener(_syncPet);
+    }
+    return _ble!;
+  }
+
+  void _syncPet() {
+    final cloud = _ble!.voiceCloud;
+    final changed = _wasBusy && !cloud.busy;
+    _wasBusy = cloud.busy;
+    final rebound = _pet.bind(cloud.deviceId, cloud.petId);
+    if (changed && !rebound) _pet.refresh();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _pet.refresh();
+  }
+
   // Created on first use, retained when returning from the connection screen.
   Core2Ble? _ble;
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _ble?.voiceCloud.removeListener(_syncPet);
+    _pet.dispose();
     _ble?.dispose();
     super.dispose();
   }
@@ -62,17 +98,55 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openConnection() async {
-    _ble ??= Core2Ble();
+    _ensureBle();
     setState(() {});
     await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => Core2ConnectionPage(ble: _ble)),
     );
-    if (mounted) setState(() {});
+    if (mounted) {
+      _syncPet();
+      await _pet.refresh();
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _openBirth() async {
+    if (_ble?.ready != true || _ble?.voiceCloud.petId == null) {
+      await _openConnection();
+    }
+    if (!mounted) return;
+    final cloud = _ble?.voiceCloud;
+    final deviceId = cloud?.deviceId;
+    final petId = cloud?.petId;
+    if (_ble?.ready != true || deviceId == null || petId == null) {
+      _showInfo(
+        'M5を先に登録してください',
+        'M5Stackを接続し、端末登録が完了してから「キャラクターを誕生させる」を押してください。',
+      );
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => BirthScreen(
+          deviceId: deviceId,
+          petId: petId,
+          canContinue: () =>
+              _ble?.ready == true &&
+              _ble?.voiceCloud.deviceId == deviceId &&
+              _ble?.voiceCloud.petId == petId,
+        ),
+      ),
+    );
+    if (mounted) {
+      _syncPet();
+      await _pet.refresh();
+      if (mounted) setState(() {});
+    }
   }
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _ble ?? const AlwaysStoppedAnimation<double>(0),
+    animation: Listenable.merge([_pet, if (_ble != null) _ble!]),
     builder: (context, _) => Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -93,135 +167,116 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.medium),
-                      AppCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            LayoutBuilder(
-                              builder: (context, constraints) {
-                                final compact =
-                                    constraints.maxWidth < 280 ||
-                                    MediaQuery.textScalerOf(context).scale(1) >
-                                        1.3;
-                                final portrait = Container(
-                                  width: 130,
-                                  height: 130,
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.petBackground,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  alignment: Alignment.topLeft,
-                                  padding: const EdgeInsets.only(
-                                    left: 15,
-                                    top: 26,
-                                  ),
-                                  child: const Text(
-                                    '●ᴥ●',
-                                    semanticsLabel: 'ペットの表示サンプル',
-                                    style: TextStyle(fontSize: 30),
-                                  ),
-                                );
-                                final info = Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'ポポ',
-                                      style: TextStyle(
-                                        fontSize: 25,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 7),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.soft,
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
-                                      ),
-                                      child: const Text(
-                                        'あなたは 5人目',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: AppColors.primary,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 7),
-                                    const Text(
-                                      '旅の日数 27日',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: AppColors.muted,
-                                      ),
-                                    ),
-                                  ],
-                                );
-                                return compact
-                                    ? Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          portrait,
-                                          const SizedBox(height: 16),
-                                          info,
-                                        ],
-                                      )
-                                    : Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          portrait,
-                                          const SizedBox(width: 16),
-                                          Expanded(child: info),
-                                        ],
-                                      );
-                              },
-                            ),
-                            const SizedBox(height: 12),
-                            const Text(
-                              '種族・性格は自動決定（表示サンプル）',
-                              style: TextStyle(fontSize: 14),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'この子に残っているもの',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const AppCard(
-                        color: AppColors.soft,
-                        padding: 14,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '性格：好奇心旺盛（自動決定）',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.bold,
+                      if (_pet.loading) const LinearProgressIndicator(),
+                      if (_pet.pet == null)
+                        AppCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _pet.error ??
+                                    (_pet.loading
+                                        ? 'ペット情報を読み込んでいます…'
+                                        : 'M5に接続すると、この子の情報を表示します。'),
+                                style: const TextStyle(height: 1.7),
                               ),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              '一人称：ぼく / 語尾：〜だよ（表示専用）',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                          ],
+                              if (_pet.error != null)
+                                TextButton(
+                                  onPressed: _pet.loading ? null : _pet.refresh,
+                                  child: const Text('もう一度読み込む'),
+                                ),
+                              if (_pet.diagnostic != null)
+                                SelectableText(
+                                  _pet.diagnostic!,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
+                      if (_pet.pet != null) ...[
+                        AppCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Center(
+                                child: CurrentPetPortrait(
+                                  name: _pet.pet!.name,
+                                  appearance: _pet.pet!.appearance,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                _pet.pet!.name,
+                                style: const TextStyle(
+                                  fontSize: 25,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'あなたは ${_pet.pet!.generation}人目',
+                                style: const TextStyle(
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              if (_pet.pet!.createdAt != null)
+                                Text(
+                                  '旅の日数 ${DateTime.now().difference(_pet.pet!.createdAt!).inDays.clamp(0, 999999) + 1}日',
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    height: 1.7,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'この子に残っているもの',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        AppCard(
+                          color: AppColors.soft,
+                          padding: 14,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _pet.pet!.description,
+                                style: const TextStyle(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.bold,
+                                  height: 1.7,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '一人称：${_pet.pet!.firstPerson}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              Text(
+                                '話し方：${_pet.pet!.speechNote}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  height: 1.7,
+                                ),
+                              ),
+                              if (_pet.pet!.learnedWords.isNotEmpty)
+                                Text(
+                                  '覚えた言葉：${_pet.pet!.learnedWords.join("・")}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    height: 1.7,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       const Text(
                         '育成はガジェットで',
@@ -237,7 +292,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(fontSize: 12, color: AppColors.muted),
                       ),
                       const SizedBox(height: 16),
-                      const JourneyGauge(value: 0.72),
+                      if (_pet.pet != null)
+                        JourneyGauge(value: _pet.pet!.gauge)
+                      else
+                        const AppCard(
+                          child: Text(
+                            '旅立ちゲージはペット情報を取得すると表示されます。',
+                            style: TextStyle(height: 1.7),
+                          ),
+                        ),
                       const SizedBox(height: 12),
                       ActionButton(
                         label: _ble?.ready == true
@@ -245,6 +308,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             : '未接続 · M5Stackにつなぐ',
                         onPressed: _openConnection,
                       ),
+                      if (_pet.pet != null && !_pet.pet!.born) ...[
+                        const SizedBox(height: 12),
+                        ActionButton(
+                          label: 'キャラクターを誕生させる・続きから',
+                          onPressed: _openBirth,
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       ActionButton(
                         label: '確定した交換結果を見る',
@@ -259,9 +329,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         },
                       ),
                       const SizedBox(height: 12),
-                      const Text(
-                        'ペット情報・旅立ちゲージは表示サンプルです。',
-                        style: TextStyle(fontSize: 11, color: AppColors.muted),
+                      TextButton(
+                        onPressed: _pet.loading ? null : _pet.refresh,
+                        child: const Text('ペット情報を更新'),
                       ),
                     ],
                   ),
