@@ -4,7 +4,6 @@ import 'core2_connection_screen.dart';
 import 'exchange_result_screen.dart';
 import 'letters_screen.dart';
 import 'watch_screen.dart';
-import 'foundation/watch_pet.dart';
 import 'designsystem/action_button.dart';
 import 'designsystem/app_card.dart';
 import 'designsystem/bottom_navigation.dart';
@@ -16,8 +15,7 @@ import 'foundation/services/core2_ble.dart';
 import 'foundation/controllers/home_pet_controller.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, this.firstPet = WatchPet.firstCreatedSample});
-  final WatchPet? firstPet;
+  const HomeScreen({super.key});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -352,8 +350,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       if (index == 1) {
                         Navigator.of(context).push<void>(
                           MaterialPageRoute(
-                            builder: (_) =>
-                                WatchScreen(firstPet: widget.firstPet),
+                            builder: (_) => const WatchScreen(),
                           ),
                         );
                         return;

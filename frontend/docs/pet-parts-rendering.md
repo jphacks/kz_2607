@@ -7,7 +7,8 @@
 
 - primary: 体の種類
 - stage: baby / child / adult の体画像
-- secondary: 目と口の種類
+- secondary: 目の種類
+- tertiary: 口の種類（旧APIで未設定の場合のみsecondaryを使用）
 - activity: 犬・mouth_01_open_smile
 - friendly: カピバラ・mouth_02_cat
 - talkative: インコ・mouth_03_open_o

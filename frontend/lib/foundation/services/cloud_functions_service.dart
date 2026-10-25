@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'voice_transfer.dart';
 import '../models/pet_letter.dart';
+import '../watch_pet.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:firebase_auth/firebase_auth.dart';
@@ -138,6 +139,17 @@ class CloudFunctionsService {
     'name': name,
     'firstPerson': firstPerson,
   });
+
+  Future<WatchPet?> getFirstPet() async {
+    await _prepare();
+    final response = await _invoke(
+      'getFirstPet',
+      {},
+      const Duration(seconds: 30),
+    );
+    if (response is! Map) throw const FormatException('getFirstPetの応答形式が不正です');
+    return WatchPet.fromResponse(response);
+  }
 
   Future<LettersInbox> getLetters() async {
     await _prepare();

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'designsystem/app_card.dart';
-import 'designsystem/pet_portrait.dart';
+import 'designsystem/current_pet_portrait.dart';
 import 'foundation/app_colors.dart';
 import 'foundation/watch_pet.dart';
 
@@ -119,7 +119,13 @@ class JourneyDetailScreen extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
             children: [
-              Center(child: PetPortrait(name: pet.name, size: 152)),
+              Center(
+                child: CurrentPetPortrait(
+                  name: pet.name,
+                  appearance: pet.appearance,
+                  size: 152,
+                ),
+              ),
               const SizedBox(height: 16),
               Text(
                 pet.name,
@@ -154,15 +160,6 @@ class JourneyDetailScreen extends StatelessWidget {
               for (final generation in _generations)
                 _generationMemories(generation),
               const SizedBox(height: 20),
-              if (pet.isSample)
-                const Text(
-                  '思い出は表示サンプルです。実際の記録とは連携していません。記録のない世代は表示していません。',
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.7,
-                    color: AppColors.muted,
-                  ),
-                ),
             ],
           ),
         ),
@@ -170,4 +167,3 @@ class JourneyDetailScreen extends StatelessWidget {
     ),
   );
 }
-

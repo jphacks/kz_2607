@@ -1,61 +1,118 @@
-/// Display samples from Figma; these are not server-confirmed pets or owners.
+import 'models/pet_appearance.dart';
+
+/// The authenticated user's first-created pet, returned by getFirstPet.
 class WatchPet {
   const WatchPet({
     required this.petId,
     required this.name,
-    required this.summary,
-    required this.sharedDays,
-    required this.encounters,
-    this.currentGeneration = 1,
-    this.memories = const [],
-    this.isSample = false,
+    required this.currentGeneration,
+    required this.withYou,
+    required this.appearance,
+    required this.memories,
   });
-  final String petId, name, summary, sharedDays, encounters;
-
+  final String petId, name;
   final int currentGeneration;
+  final bool withYou;
+  final PetAppearance appearance;
   final List<PetMemory> memories;
-  final bool isSample;
+  String get summary => withYou
+      ? 'いまはあなたと一緒 / 現在 $currentGeneration代目'
+      : '現在 $currentGeneration代目の飼い主と一緒';
+  String get sharedDays =>
+      'あなたとの思い出 ${memories.where((memory) => memory.generation == 1).length}件';
+  String get encounters => '受け継がれた思い出を、世代ごとに振り返ります。';
 
-  static const firstCreatedSample = WatchPet(
-    currentGeneration: 12,
-    isSample: true,
-    memories: [
-      PetMemory(
-        generation: 1,
-        title: 'はじめて名前を呼んだ日',
-        body: 'ミロ、と呼びかけると、うれしそうに返事をしてくれました。あなたとの会話から、この子の旅がはじまりました。',
-      ),
-      PetMemory(
-        generation: 1,
-        title: 'おやすみの前に',
-        body: '今日あったことを話して、一緒に一日を振り返りました。何気ない時間も、大切な思い出です。',
-      ),
-      PetMemory(
-        generation: 2,
-        title: '新しい場所でのごあいさつ',
-        body: '次の飼い主との暮らしがはじまりました。少しずつ会話を重ねて、新しい言葉を覚えています。',
-      ),
-      PetMemory(
-        generation: 12,
-        title: '今日のうれしかったこと',
-        body: 'いまの飼い主と、今日うれしかった出来事を話しました。またひとつ、思い出が増えました。',
-      ),
-    ],
-    petId: 'sample-miro',
-    name: 'ミロ',
-    summary: '12人目の飼い主と / 更新：今日（表示例）',
-    sharedDays: 'あなたが最初の飼い主として、この子を育てました。',
-    encounters: '過去の家を巡った記録と、受け継いだ思い出。',
-  );
+  static WatchPet? fromResponse(Map data) {
+    if (!data.containsKey('petId') ||
+        data['memories'] is! List ||
+        data['withYou'] is! bool) {
+      throw const FormatException('getFirstPetの応答形式が不正です');
+    }
+    if (data['petId'] == null) {
+      if ((data['memories'] as List).isNotEmpty || data['withYou'] != false) {
+        throw const FormatException('最初のペットの空状態が不正です');
+      }
+      return null;
+    }
+    final id = data['petId'],
+        generation = data['generation'],
+        name = data['name'];
+    if (id is! String ||
+        id.isEmpty ||
+        generation is! int ||
+        generation < 1 ||
+        (name != null && name is! String) ||
+        data['appearance'] is! Map) {
+      throw const FormatException('最初のペット情報が不正です');
+    }
+    final appearance = PetAppearance.fromMap(data['appearance'] as Map);
+    if (data['stage'] != appearance.stage) {
+      throw const FormatException('成長段階が一致しません');
+    }
+    final memories = <PetMemory>[];
+    final generations = <int>{};
+    for (final group in data['memories'] as List) {
+      if (group is! Map ||
+          group['generation'] is! int ||
+          group['mine'] is! bool ||
+          group['items'] is! List) {
+        throw const FormatException('世代別の思い出が不正です');
+      }
+      final g = group['generation'] as int;
+      if (g < 1 || g > generation || !generations.add(g)) {
+        throw const FormatException('思い出の世代が不正です');
+      }
+      for (final item in group['items'] as List) {
+        if (item is! Map ||
+            item['text'] is! String ||
+            (item['text'] as String).trim().isEmpty) {
+          throw const FormatException('思い出の本文が不正です');
+        }
+        final rawDate = item['createdAt'];
+        final date = rawDate is String ? DateTime.tryParse(rawDate) : null;
+        if (rawDate != null && date == null) {
+          throw const FormatException('思い出の日付が不正です');
+        }
+        memories.add(
+          PetMemory(
+            generation: g,
+            body: item['text'] as String,
+            createdAt: date,
+            mine: group['mine'] as bool,
+          ),
+        );
+      }
+    }
+    memories.sort((a, b) {
+      final order = a.generation.compareTo(b.generation);
+      if (order != 0) return order;
+      if (a.createdAt == null) return b.createdAt == null ? 0 : 1;
+      return b.createdAt == null ? -1 : b.createdAt!.compareTo(a.createdAt!);
+    });
+    return WatchPet(
+      petId: id,
+      name: name is String && name.trim().isNotEmpty ? name : '名前はこれから',
+      currentGeneration: generation,
+      withYou: data['withYou'] as bool,
+      appearance: appearance,
+      memories: List.unmodifiable(memories),
+    );
+  }
 }
 
-/// One memory belonging to a specific owner generation.
 class PetMemory {
   const PetMemory({
     required this.generation,
-    required this.title,
     required this.body,
+    required this.mine,
+    this.createdAt,
   });
   final int generation;
-  final String title, body;
+  final String body;
+  final bool mine;
+  final DateTime? createdAt;
+  String get title {
+    final day = createdAt?.toLocal();
+    return day == null ? '思い出' : '${day.year}年${day.month}月${day.day}日の思い出';
+  }
 }
