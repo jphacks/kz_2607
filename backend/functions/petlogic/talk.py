@@ -12,7 +12,7 @@ from .personality import maybe_update_personality
 from .learn import learn_words
 from .memory import load_talk_context
 from .register import validate_device_id
-from .talklog import recent_turns, record_turn
+from .talklog import recent_for_ai, record_turn
 from .store import run_in_transaction
 from .wav import describe_wav, parse_recording
 
@@ -44,6 +44,8 @@ def build_ai_payload(text, pet_id, pet, now, context=None, stage=None):
     for key in ("memories", "pastMemories", "nameMap", "journeys", "recentTurns"):  # 思い出・直近の会話(空なら付けない)
         if (context or {}).get(key):
             payload[key] = context[key]
+    if (context or {}).get("recentTurns"):
+        payload["summarizedSeq"] = context.get("summarizedSeq")  # 要約済みの番号(まだなら null)
     if pet.get("name"):
         payload["petName"] = pet["name"]
     if pet.get("firstPerson"):
@@ -126,7 +128,7 @@ def talk(db, uid, data, now, recognize, ai, tts, run_tx=run_in_transaction):
     with ThreadPoolExecutor(max_workers=1) as pool:
         stt = pool.submit(recognize, pcm, rate, language, phrases)
         context = dict(load_talk_context(db, uid, pet_id, pet))
-        context["recentTurns"] = recent_turns(db, pet_id, pet.get("generation", 1))
+        context.update(recent_for_ai(db, pet_id, pet.get("generation", 1)))
         try:
             transcript, _confidence = stt.result()
         except Exception as e:

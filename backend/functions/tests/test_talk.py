@@ -350,20 +350,40 @@ def test_ai_gets_recent_turns_oldest_first_and_only_last_5():
     db, pet = setup()
     f = Fakes()
     call(db, f)
-    assert "recentTurns" not in f.ai_calls[0][1]  # 最初の会話には、まだない
-    for i in range(1, 8):
+    assert "recentTurns" not in f.ai_calls[0][1] and "summarizedSeq" not in f.ai_calls[0][1]  # 最初の会話には、まだない
+    for i in range(2, 9):
         call(db, Fakes(transcript=f"発言{i}", reply=f"返事{i}"), now=NOW + timedelta(minutes=i))
     f = Fakes(transcript="いま")
+    call(db, f, now=NOW + timedelta(minutes=10))
+    p = f.ai_calls[0][1]
+    turns = p["recentTurns"]
+    assert len(turns) == 10  # 5往復=10発言。今回の発言は入らない
+    assert turns[0] == {"speaker": "owner", "text": "発言4", "seq": 7}
+    assert turns[1] == {"speaker": "pet", "text": "返事4", "seq": 8}
+    assert turns[-2:] == [{"speaker": "owner", "text": "発言8", "seq": 15}, {"speaker": "pet", "text": "返事8", "seq": 16}]
+    assert [t["seq"] for t in turns] == sorted(t["seq"] for t in turns)
+    assert p["summarizedSeq"] is None  # まだ要約していない
+    assert all(t["text"] != "いま" for t in turns)
+
+
+def test_summarized_seq_is_doubled_and_only_this_generation():
+    db, pet = setup()
+    for i in range(1, 4):
+        call(db, Fakes(transcript=f"発言{i}", reply=f"返事{i}"), now=NOW + timedelta(minutes=i))
+    db.docs[("pets/%s/talkLogs" % pet, "1")]["summarizedSeq"] = 2
+    f = Fakes()
     call(db, f, now=NOW + timedelta(minutes=9))
-    turns = f.ai_calls[0][1]["recentTurns"]
-    assert [t["text"] for t in turns] == ["発言3", "発言4", "発言5", "発言6", "発言7"]
-    assert turns[-1] == {"text": "発言7", "reply": "返事7"}
+    assert f.ai_calls[0][1]["summarizedSeq"] == 4
+    # 別の代の会話は送らない
+    db.docs[("pets", pet)]["generation"] = 2
+    f = Fakes()
+    call(db, f, now=NOW + timedelta(minutes=20))
+    assert "recentTurns" not in f.ai_calls[0][1]
 
 
 def test_recent_turns_failure_does_not_break_the_conversation(monkeypatch):
-    import petlogic.talk as talk_mod
     db, pet = setup()
     call(db, Fakes())
-    monkeypatch.setattr("petlogic.talklog.read_turns", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    monkeypatch.setattr("petlogic.talklog._ref", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
     f = Fakes()
-    assert call(db, f)["status"] == "ok" and "recentTurns" not in f.ai_calls[0][1]
+    assert call(db, f, now=NOW + timedelta(minutes=5))["status"] == "ok" and "recentTurns" not in f.ai_calls[0][1]
