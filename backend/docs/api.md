@@ -248,9 +248,9 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 | `journeys` | `[{generation, learnedWords, talkCount, timeOfDay?, summary?}]` 前の持ち主たちの旅の記録 |
 
 - 前の持ち主の nameMap は、次の飼い主には渡さない。前の持ち主の思い出は、`pastMemories`(ぼかし済み)と journeys だけが引き継がれる。
-- 交換が確定した少しあと(裏の処理が終わったあと)に、`memoryCache/current` を新しい飼い主用に作り直す。それまでは `memories`・`pastMemories` とも空。
+- 交換が確定した少しあと(裏の処理が終わったあと)に、`memoryCache/current` を新しい飼い主用に作り直す。それまでの間も、会話のときに、保存済みの思い出から、その場で選んで渡す(`memories`・`pastMemories` が空になる時間はない。ただし、交換前の最後の会話の要約は、裏の処理が終わるまで間に合わない)。
 - 要約(`summarizeMemories`)は Firestore トリガーで、会話が5往復(既定。`config/game.summarizeEveryTurns`、本番は10など)たまるたびに裏で動く。`/talk` の返事は待たせない。
-- 交換時(`summarizeHandoff`)に、終わった代の残りの会話(3往復以上)も要約し、journeys に値(言葉・会話数・時間帯)と summary を書く。
+- 交換時(`summarizeHandoff`)に、終わった代の、要約していない会話が1往復でも残っていれば、それも要約し、journeys に値(言葉・会話数・時間帯)と summary を書く。
 - 思い出の日付(`createdAt`)は、出来事のあった日の12:00(JST)。
 - モデル名は `functions/.env` の `OPENAI_MODEL`(仕様書の `gpt-6-luna` ではなく、実際の `gpt-5.6-luna`)。
 
