@@ -71,8 +71,16 @@ def past_memory_say(t: str, kind: str, p: PetProfile) -> str:
     t = re.sub(r"と((?:話|言|笑|喜|教|しゃべ)[^と]*)$", r"って\1", t)    # 「〜と話してくれた」→「〜って話してくれた」
     t = re.sub(r"([てで])いた$", r"\1た", t)                           # 「言っていた」→「言ってた」
     if not _ends_past(t):
-        return f"{who}とのこと{t}っておぼえてる" if p.stage == 1 else f"{who}とのことは「{t}」って覚えてるよ"
+        return f"{who}とのおもいでは{t}" if p.stage == 1 else f"{who}とのことは「{t}」って覚えてるよ"
     return f"{who}が{t}んだ" if p.stage == 1 else f"{who}がね、{t}んだ"
+
+
+def _baby_past(s: str, p: PetProfile) -> str:
+    """前の代の文を赤ちゃん言葉に。baby_talk.py は文の終わりを口ぐせ（〜だよっ！・〜なの・〜なのだ・〜かな？…）に置きかえるので、
+    「〜したんだ」のままだと「〜しただよっ！」「〜したなの」になる。「〜したこと」で終えて、どの口ぐせでも自然にする"""
+    b = re.sub(r"[、，,！!？?「」]", "", s)
+    b = re.sub(r"(?<=[ただ])んだ$", "こと", b)
+    return _baby(b + "。", p)
 
 
 def fact_say(f: dict, p: PetProfile) -> str:
@@ -94,7 +102,7 @@ def template_reply(kind: str, lines: List[str], p: PetProfile, label: str = "", 
     if kind != "current" and says:
         s = says[0].rstrip("。")
         if p.stage == 1:
-            return _baby(re.sub(r"[、，,！!？?「」]", "", s) + "よ。", p)
+            return _baby_past(s, p)
         return f"{s}。" if s.startswith(PAST_LEADS) else f"えっとね、{s}。"
     t = lines[0].rstrip("。")
     if p.stage == 1:
@@ -103,7 +111,7 @@ def template_reply(kind: str, lines: List[str], p: PetProfile, label: str = "", 
         if kind == "current":
             return _baby(f"{label}{b}よね。" if _ends_past(b) else f"{b}のことおぼえてるよ。", p)
         who = "さいしょのかいぬしさん" if kind == "first" else "まえのかいぬしさん"
-        return _baby(f"{who}とは{b}んだよ。" if _ends_past(b) else f"{who}とのこと{b}っておぼえてるよ。", p)
+        return _baby_past(f"{who}とは{b}んだ" if _ends_past(b) else f"{who}とのおもいでは{b}", p)
     if kind == "current":
         s = f"{label}{t}よね" if _ends_past(t) else f"「{t}」のこと"
         return f"うん、覚えてるよ！{s}。" if _ends_past(t) else f"うん、{s}覚えてるよ！"

@@ -386,6 +386,14 @@ class ExchangeTest(unittest.TestCase):
             talk_state.history.clear()
             talk_state._last_gen.clear()
 
+    def test_where(self):
+        """「前はどこにいたの？」は、前の代の思い出（できごと1件）ではなく旅の記録のまとめで答える。"""
+        past, journeys = exchanged("冷やし中華を食べたと話してくれた")
+        r, _, persona = self.ask("前はどこにいたの？", past, journeys)
+        self.assertEqual(persona["memory"]["question"], "where")
+        self.assertEqual(persona["memory"]["keys"][0], "summary")
+        self.assertTrue(r.startswith("えっとね、前の飼い主さんとは夏の話をよくしたんだ。"), r)
+
     def test_relaxed_day_label(self):
         """今の代の思い出が今日だけのとき、「昨日」で聞かれても「今日」と言う（過去7日に緩める）。"""
         memories = [{"id": "m1", "text": "冷やし中華を食べた", "createdAt": NOON}]
@@ -410,8 +418,9 @@ class ExchangeTest(unittest.TestCase):
     def test_baby(self):
         """赤ちゃんの段階：モデルを呼ばない決まった文。生まれたときの口ぐせ（6種類）のどれでも、中身が切れない。"""
         from common import AXES
-        cases = [("冷やし中華を食べたと話してくれた", "まえのかいぬしさんがひやしちゅうかをたべたってはなしてくれた"),
-                 ("あのお祭りで花火を見たと言っていた", "まえのかいぬしさんがあのおまつりではなびをみたっていってた")]
+        # 口ぐせが文の終わりに付くので「〜したこと」で終える（「〜くれただよっ！」「〜くれたなの」にしない）
+        cases = [("冷やし中華を食べたと話してくれた", "まえのかいぬしさんがひやしちゅうかをたべたってはなしてくれたこと"),
+                 ("あのお祭りで花火を見たと言っていた", "まえのかいぬしさんがあのおまつりではなびをみたっていってたこと")]
         for text, body in cases:
             past, journeys = exchanged(text)
             for q in EXCHANGE_QUESTIONS:
@@ -425,7 +434,7 @@ class ExchangeTest(unittest.TestCase):
         p = PetProfile(stage=1, generation=2, birth_trait="active")       # 口ぐせ「〜だよっ！」
         r = self.mt.reply(p, [], "昨日なにしたっけ？", [], NAME_MAP, [], today=TODAY,
                           past_memories=exchanged(cases[0][0])[0])[0]
-        self.assertEqual(r, "まえのかいぬしさんがひやしちゅうかをたべたってはなしてくれただよっ！")
+        self.assertEqual(r, "まえのかいぬしさんがひやしちゅうかをたべたってはなしてくれたことだよっ！")
 
 if __name__ == "__main__":
     talk_server.log_talk = lambda *a, **k: None    # 1行ログは出さない
