@@ -9,6 +9,7 @@
 #include "pet_config.h"
 #include "peer_exchange.h"
 #include "step_counter.h"
+#include "pet_image_receiver.h"
 
 namespace {
 
@@ -61,6 +62,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     } else {
       androidConnectionHandle = info.getConnHandle();
       petConfigSetAndroidConnection(androidConnectionHandle);
+      petImageReceiverSetAndroidConnection(androidConnectionHandle);
       connected = true;
       connectionChanged = true;
     }
@@ -74,6 +76,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     } else if (info.getConnHandle() == androidConnectionHandle) {
       androidConnectionHandle = UINT16_MAX;
       petConfigSetAndroidConnection(UINT16_MAX);
+      petImageReceiverSetAndroidConnection(UINT16_MAX);
       connected = false;
       connectionChanged = true;
       voiceTransferClearConfiguration();
@@ -114,52 +117,14 @@ bool updateVolume() {
   return true;
 }
 
-void drawPlayCharacter() {
-  const uint16_t fur = M5.Display.color565(244, 166, 82);
-  const uint16_t innerEar = M5.Display.color565(247, 145, 151);
-  const uint16_t muzzle = M5.Display.color565(255, 239, 211);
-  const uint16_t shadow = M5.Display.color565(38, 40, 52);
-  const uint16_t face = M5.Display.color565(51, 41, 42);
-
-  // A temporary cat drawn directly on the Core2 display.
-  M5.Display.fillRoundRect(100, 214, 120, 9, 4, shadow);
-  M5.Display.fillCircle(209, 179, 21, fur);
-  M5.Display.fillCircle(221, 164, 16, fur);
-  M5.Display.fillCircle(220, 150, 12, fur);
-  M5.Display.fillCircle(160, 169, 45, fur);
-  M5.Display.fillCircle(160, 176, 29, muzzle);
-  M5.Display.fillRoundRect(119, 199, 34, 16, 8, fur);
-  M5.Display.fillRoundRect(167, 199, 34, 16, 8, fur);
-
-  M5.Display.fillTriangle(104, 76, 111, 24, 147, 56, fur);
-  M5.Display.fillTriangle(216, 76, 209, 24, 173, 56, fur);
-  M5.Display.fillTriangle(115, 64, 117, 39, 136, 58, innerEar);
-  M5.Display.fillTriangle(205, 64, 203, 39, 184, 58, innerEar);
-  M5.Display.fillCircle(160, 104, 60, fur);
-  M5.Display.fillCircle(142, 126, 19, muzzle);
-  M5.Display.fillCircle(178, 126, 19, muzzle);
-  M5.Display.fillCircle(138, 99, 6, face);
-  M5.Display.fillCircle(182, 99, 6, face);
-  M5.Display.fillCircle(140, 97, 2, TFT_WHITE);
-  M5.Display.fillCircle(184, 97, 2, TFT_WHITE);
-  M5.Display.fillTriangle(153, 123, 167, 123, 160, 132, innerEar);
-  M5.Display.drawLine(160, 132, 160, 139, face);
-  M5.Display.drawLine(160, 139, 154, 143, face);
-  M5.Display.drawLine(160, 139, 166, 143, face);
-  M5.Display.drawLine(129, 130, 105, 125, face);
-  M5.Display.drawLine(129, 137, 104, 140, face);
-  M5.Display.drawLine(191, 130, 215, 125, face);
-  M5.Display.drawLine(191, 137, 216, 140, face);
-}
-
 void drawPlayRecordingIndicator() {
   M5.Display.fillRect(0, M5.Display.height() - 5, M5.Display.width(), 5,
                       voiceRecording() ? TFT_RED : TFT_BLACK);
 }
 
 void drawPlayVolumeOverlay() {
-  M5.Display.fillRect(4, 52, 72, 134, TFT_BLACK);
   if (!volumeVisible) return;
+  M5.Display.fillRect(4, 52, 72, 134, TFT_BLACK);
   M5.Display.drawRect(4, 52, 72, 134, TFT_DARKGREY);
   M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
   M5.Display.setTextSize(1);
@@ -177,7 +142,7 @@ void drawPlayVolumeOverlay() {
 void drawScreen() {
   if (playMode) {
     M5.Display.fillScreen(TFT_BLACK);
-    drawPlayCharacter();
+    petImageReceiverDraw();
     drawModeButton();
     drawPlayVolumeOverlay();
     drawPlayRecordingIndicator();
@@ -288,6 +253,7 @@ void startBle() {
   statusCharacteristic->setValue(statusJson().c_str());
   voiceTransferBegin(service);
   replyReceiverBegin(service);
+  petImageReceiverBegin(service);
   server->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
@@ -315,16 +281,25 @@ void loop() {
   if (modeChanged && !playMode) volumeVisible = false;
   const bool volumeChanged = updateVolume();
   voiceUpdate(connected && voiceTransferConfigured() && !replyReceiverBusy() &&
+              !petImageReceiverBusy() &&
               !petConfigExchangePending());
   voiceTransferUpdate(connected);
   replyReceiverUpdate(connected);
   petConfigUpdate(connected);
+  static String lastImagePetId = petConfigId();
+  if (petConfigId() != lastImagePetId) {
+    petImageReceiverClear();
+    lastImagePetId = petConfigId();
+  }
+  petImageReceiverUpdate(connected);
   const bool audioBusy = voiceRecording() || voiceReady() ||
-      voiceTransferSending() || replyReceiverBusy() || voicePlayingReply();
+      voiceTransferSending() || replyReceiverBusy() || voicePlayingReply() ||
+      petImageReceiverBusy();
   peerDistanceUpdate(audioBusy);
   peerExchangeUpdate(audioBusy);
   static uint32_t lastVoiceRevision = 0;
   static uint32_t lastReplyRevision = 0;
+  static uint32_t lastImageRevision = 0;
   static uint32_t lastPeerRevision = 0;
   static uint32_t lastPetRevision = 0;
   static uint32_t lastPetNotifyRevision = 0;
@@ -362,16 +337,19 @@ void loop() {
       voiceTransferReset();
       voiceCancel("Disconnected");
       replyReceiverReset();
+      petImageReceiverResetConnection();
       petConfigReset();
     }
     if (!playMode || modeChanged) drawScreen();
     lastVoiceRevision = voiceRevision();
     lastReplyRevision = replyReceiverRevision();
+    lastImageRevision = petImageReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
     lastPetRevision = petConfigRevision();
     lastDrawStepCount = steps;
     lastDraw = millis();
   } else if (modeChanged ||
+             petImageReceiverRevision() != lastImageRevision ||
              ((voiceRevision() != lastVoiceRevision ||
                replyReceiverRevision() != lastReplyRevision) &&
               ((!voiceRecording() && !replyReceiverReceiving()) ||
@@ -384,6 +362,7 @@ void loop() {
     if (!playMode || modeChanged) drawScreen();
     lastVoiceRevision = voiceRevision();
     lastReplyRevision = replyReceiverRevision();
+    lastImageRevision = petImageReceiverRevision();
     lastPeerRevision = peerDistanceRevision();
     lastPetRevision = petConfigRevision();
     lastDrawStepCount = steps;
@@ -395,7 +374,7 @@ void loop() {
   lastPlayRecording = voiceRecording();
   if (volumeVisible && millis() - volumeShownAt >= 1000) {
     volumeVisible = false;
-    if (playMode) drawPlayVolumeOverlay();
+    if (playMode) drawScreen();
   } else if (playMode && volumeChanged) {
     drawPlayVolumeOverlay();
   }
