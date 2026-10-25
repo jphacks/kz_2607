@@ -35,3 +35,4 @@
 | 2026-10-25 | 誕生のながれ: `birthStatus`(egg→personality_set→profile_ready→born)、`generateBirthProfile`(OpenAIで名前の候補・紹介・一人称・最初のひとこと。失敗時は固定の文)、`setPetName` に一人称と `alreadyBorn`、`setInitialPersonality` に文字列バージョンと `requestId`、`getPet` に誕生の項目を追加。テスト205件 |
 | 2026-10-25 | 絵のキーの同じ値のときの順番を、誕生のながれを通ったペットでは固定(birthTrait と同じ順)に統一。`primary` と `birthTrait` が誕生のとき必ず一致。テスト207件 |
 | 2026-10-25 | `appearance` に `tertiary`(3番目に強い軸)を追加(パーツ方式の口などに)。テスト207件 |
+| 2026-10-25 | 交換直後も、保存済みの思い出から、その場で `memories`・`pastMemories` を選んで渡す(置き場が新しくなるまで空になる穴を修正)。交換の確定時は、要約していない会話が1往復でも要約。テスト209件 |

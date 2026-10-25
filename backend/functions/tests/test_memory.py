@@ -68,12 +68,14 @@ def test_summarize_saves_memories_names_and_cache():
     assert "today: 2026-10-24" in seen["user"] and "飼い主: 話0" in seen["user"]
 
 
-def test_not_summarized_until_batch_turns_but_force_needs_three():
+def test_not_summarized_until_batch_turns_but_force_takes_even_one_turn():
     db, pet = setup(4)
     assert summarize_memories(db, pet, 1, lambda s, u: 1 / 0, NOW, run_tx=run_tx)["status"] == "skipped"
     assert summarize_memories(db, pet, 1, lambda s, u: reply([]), NOW, force=True, run_tx=run_tx)["status"] == "done"
-    db2, pet2 = setup(2)
-    assert summarize_memories(db2, pet2, 1, lambda s, u: reply([]), NOW, force=True, run_tx=run_tx)["status"] == "skipped"
+    db2, pet2 = setup(1)
+    assert summarize_memories(db2, pet2, 1, lambda s, u: reply([]), NOW, force=True, run_tx=run_tx)["status"] == "done"
+    db3, pet3 = setup(0)
+    assert summarize_memories(db3, pet3, 1, lambda s, u: reply([]), NOW, force=True, run_tx=run_tx)["status"] == "skipped"
 
 
 def test_failure_releases_the_claim_for_retry():
@@ -122,7 +124,8 @@ def test_talk_context_only_for_current_owner_and_generation():
     ctx = load_talk_context(db, "u1", pet, pet_doc)
     assert [m["text"] for m in ctx["memories"]] == ["散歩をした"]
     assert load_talk_context(db, "u2", pet, pet_doc)["memories"] == []  # 別の飼い主には渡さない
-    assert load_talk_context(db, "u1", pet, {**pet_doc, "generation": 2})["memories"] == []  # 代が変わった
+    changed = load_talk_context(db, "u2", pet, {**pet_doc, "generation": 2})  # 別の飼い主に代わった
+    assert changed["memories"] == [] and [m["text"] for m in changed["pastMemories"]] == ["散歩をした"]
 
 
 def test_payload_adds_only_non_empty_context():
@@ -277,3 +280,14 @@ def test_summarizing_an_ended_generation_does_not_overwrite_the_new_owners_cache
     refresh_cache(db, pet, NOW)  # 交換のあとの用意
     cache = db.docs[(f"pets/{pet}/memoryCache", "current")]
     assert cache["generation"] == 2 and [m["text"] for m in cache["pastItems"]] == ["散歩をした"]
+
+
+def test_talk_context_reads_memories_even_before_the_new_owners_cache_exists():
+    db, pet = setup(0)
+    put_memory(db, pet, "uA", 1, "{shop_1}でアイスを食べた", 1)
+    db.docs[(f"pets/{pet}/memoryCache", "current")] = {"ownerUid": "uA", "generation": 1, "items": [], "pastItems": []}  # 古い置き場
+    ctx = load_talk_context(db, "uB", pet, {"generation": 2})
+    assert ctx["memories"] == [] and [m["text"] for m in ctx["pastMemories"]] == ["あのお店でアイスを食べた"]
+    assert db.docs[(f"pets/{pet}/memoryCache", "current")]["ownerUid"] == "uA"  # 読むだけで、書かない
+    ctx2 = load_talk_context(db, "uA", pet, {"generation": 3})  # 元の飼い主に戻ったら、昔の分が自分の思い出に
+    assert [m["text"] for m in ctx2["memories"]] == ["{shop_1}でアイスを食べた"] and ctx2["pastMemories"] == []

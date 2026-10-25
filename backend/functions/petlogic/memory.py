@@ -15,7 +15,7 @@ from .talklog import claim_pending, release_claim
 
 JST = timezone(timedelta(hours=9))
 BATCH_TURNS = 5  # この件数で、要約する(既定。config/game の summarizeEveryTurns で変える。本番は10)
-MIN_TURNS = 3  # これに満たない会話は、要約しない
+MIN_TURNS = 1  # 交換の確定時、要約していない会話がこれ以上あれば、必ず要約する
 MAX_MEMORIES_PER_RUN = 3
 CACHE_SIZE = 30
 PAST_NEAR = 7  # 前の代の思い出: 直前の代から最大この件数
@@ -121,13 +121,12 @@ def _item(i, d, text=None):
             "createdAt": d["createdAt"].isoformat()}
 
 
-def rebuild_cache(db, pet_id, owner_uid, generation, now):
-    """今の飼い主の思い出(items)と、前の飼い主たちの思い出(pastItems)を作り直す。
+def select_memories(memories, owner_uid, generation):
+    """思い出の一覧(id, 中身)から、今の飼い主の分(items)と、前の飼い主たちの分(past)を選ぶ。
 
     items: その飼い主が育てた代すべて(元の飼い主に戻ってきたら、昔の分も)。伏せ字のまま。nameMap は本人の分。
-    pastItems: ほかの飼い主の代。直前の代から7件+1代目から3件(新しい順)。伏せ字はぼかす。
+    past: ほかの飼い主の代。直前の代から7件+1代目から3件(新しい順)。伏せ字はぼかす。
     """
-    memories = [(s.id, s.to_dict()) for s in db.collection("pets").document(pet_id).collection("memories").stream()]
     newest = lambda x: x[1]["createdAt"]  # noqa: E731
     mine = sorted([(i, d) for i, d in memories if d.get("ownerUid") == owner_uid and d.get("generation", 0) <= generation],
                   key=newest, reverse=True)
@@ -141,7 +140,16 @@ def rebuild_cache(db, pet_id, owner_uid, generation, now):
     chosen = pick(near, PAST_NEAR + (PAST_FIRST if near == 1 else 0))
     if near > 1:
         chosen += pick(1, PAST_FIRST)
-    past = [_item(i, d, blur(d["text"])) for i, d in chosen]
+    return items, [_item(i, d, blur(d["text"])) for i, d in chosen]
+
+
+def read_memories(db, pet_id):
+    return [(s.id, s.to_dict()) for s in db.collection("pets").document(pet_id).collection("memories").stream()]
+
+
+def rebuild_cache(db, pet_id, owner_uid, generation, now):
+    """今の飼い主の思い出(items)と、前の飼い主たちの思い出(pastItems)を作り直して、置き場に書く。"""
+    items, past = select_memories(read_memories(db, pet_id), owner_uid, generation)
     db.collection("pets").document(pet_id).collection("memoryCache").document("current").set(
         {"ownerUid": owner_uid, "generation": generation, "items": items, "pastItems": past, "updatedAt": now})
     return items
@@ -187,10 +195,12 @@ def load_talk_context(db, uid, pet_id, pet):
     try:
         cache = db.collection("pets").document(pet_id).collection("memoryCache").document("current").get()
         memories, past = [], []
-        if cache.exists:
-            c = cache.to_dict()
-            if c.get("ownerUid") == uid and c.get("generation") == pet.get("generation", 1):
-                memories, past = list(c.get("items", [])), list(c.get("pastItems", []))
+        c = cache.to_dict() if cache.exists else None
+        if c and c.get("ownerUid") == uid and c.get("generation") == pet.get("generation", 1):
+            memories, past = list(c.get("items", [])), list(c.get("pastItems", []))
+        else:
+            # 交換のすぐあとなど、置き場がまだ新しい飼い主用になっていない。保存済みの思い出から、その場で選ぶ(書かない)
+            memories, past = select_memories(read_memories(db, pet_id), uid, pet.get("generation", 1))
         return {"memories": memories, "pastMemories": past, "nameMap": read_name_map(db, uid, pet_id),
                 "journeys": list(pet.get("journeys") or [])}
     except Exception as e:
