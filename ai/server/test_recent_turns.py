@@ -525,13 +525,45 @@ class FactQuestionTest(unittest.TestCase):
 
     def test_likes_from_recent(self):
         r, g, persona = self.ask("ぼくの好きなもの、覚えてる？")
-        self.assertTrue(r.startswith("うん、覚えてるよ！さっき「いちごのアイスが好きなんだ」って話してくれたよね。"), r)
+        # 決まった文だけ（一言を付けない・モデルを呼ばない）
+        self.assertEqual((r, g), ("うん、覚えてるよ！さっきいちごのアイスが好きなんだって教えてくれたよね。", "memory-template"))
         self.assertEqual(persona["memory"]["recent_fact"], "likes")
+        self.assertEqual(self.chat.extras, [])
 
     def test_name_from_recent(self):
-        r, _, persona = self.ask("俺の名前わかる？")
-        self.assertIn("ゆうと", r)
-        self.assertEqual(persona["memory"]["recent_fact"], "ownerName")
+        for q in ["俺の名前わかる？", "ぼくの名前、覚えてる？", "名前覚えてる？"]:
+            r, g, persona = self.ask(q)
+            with self.subTest(q=q):
+                # 引用しない：飼い主の一人称（「ぼくの名前は」）がペットの言葉に聞こえないように
+                self.assertEqual((r, g), ("うん、覚えてるよ！さっき名前はゆうとだって教えてくれたよね。", "memory-template"))
+                self.assertEqual(persona["memory"]["recent_fact"], "ownerName")
+        self.assertEqual(self.chat.extras, [])
+
+    def test_first_person_removed(self):
+        from mem_text import told_say
+        p = PetProfile(stage=3)
+        for text, want in [("俺はラーメンが好き", "さっきラーメンが好きって教えてくれたよね"),
+                           ("わたしの名前はさくら！", "さっき名前はさくらって教えてくれたよね"),
+                           ("いちごのアイスが好きなんだ", "さっきいちごのアイスが好きなんだって教えてくれたよね")]:
+            self.assertEqual(told_say(text, p), "うん、覚えてるよ！" + want)
+
+    def test_baby_from_recent(self):
+        """赤ちゃん：口ぐせ6種類のどれでも崩れない（「〜こと」で終える）。"""
+        from common import AXES
+        for q, body in [("ぼくの名前、覚えてる？", "さっきなまえはゆうとだっておしえてくれたこと"),
+                        ("ぼくの好きなもの、覚えてる？", "さっきいちごのアイスがすきなんだっておしえてくれたこと")]:
+            for trait in AXES:
+                p = PetProfile(stage=1, birth_trait=trait)
+                r, g, _ = self.mt.reply(p, self.hist, q, [], NAME_MAP)
+                with self.subTest(q=q, trait=trait):
+                    self.assertEqual(g, "memory-template")
+                    self.assertEqual(r, p.ending.replace("〜", body) + ("！" if p.ending.startswith("あのね") else ""))
+
+    def test_other_recent_keeps_react(self):
+        """名前・好きなもの以外の直近の会話は、今までどおり引用して一言を付ける。"""
+        r, g, _ = self.ask("公園で散歩したの覚えてる？")
+        self.assertEqual(g, "memory-template+lora")
+        self.assertIn("「今日は公園で散歩したよ」", r)
 
     def test_facts_first(self):
         r, _, persona = self.ask("ぼくの好きなもの、覚えてる？", facts=FACTS)      # facts があれば facts で答える

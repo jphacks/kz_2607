@@ -83,6 +83,20 @@ def _baby_past(s: str, p: PetProfile) -> str:
     return _baby(b + "。", p)
 
 
+OWNER_FIRST_PERSON_RE = re.compile(r"^(?:ぼく|僕|ボク|俺|おれ|オレ|わたし|私|あたし|うち|自分)(?:の|は|が|も)?")
+
+
+def told_say(text: str, p: PetProfile) -> str:
+    """名前・好きなものを、直近の会話の飼い主の発言（facts がまだ無いとき）で答える文。
+    引用すると飼い主の一人称（「ぼくの名前は」）がペットの言葉に聞こえるので、一人称を取り、引用せずに
+    「さっき名前はゆうとだって教えてくれたよね」にする。赤ちゃんは「〜こと」で終える（口ぐせに置きかわっても崩れない）"""
+    t = OWNER_FIRST_PERSON_RE.sub("", text.strip()).strip("、 ")
+    t = re.sub(r"(?:よね|よ|ね|な|さ|わ)?[。！!？?…〜ー\s]*$", "", t)
+    if p.stage == 1:
+        return f"さっき{t}っておしえてくれたこと"
+    return f"うん、覚えてるよ！さっき{t}って教えてくれたよね"
+
+
 def fact_say(f: dict, p: PetProfile) -> str:
     """事実（parse_facts の1件）を聞かれたときの決まった文。template_reply の says[0] に使う。
     赤ちゃんは一文・句読点なし（baby_talk.py は最初の一文だけ残すので）"""

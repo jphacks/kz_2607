@@ -13,6 +13,8 @@ tools/live_check.py — 起動中の AIサーバー（本物の判定モデル�
     cd kz_2607/ai/server
     ../chat/.venv/bin/python tools/live_check.py                          # http://127.0.0.1:8000 に送る
     ../chat/.venv/bin/python tools/live_check.py --only name,exchange     # シナリオをしぼる（name・baby・exchange）
+    ../chat/.venv/bin/python tools/live_check.py --rows 1-4,11-14         # 表の行をしぼる（番号は全部流したときと同じ。
+                                                                          # 雑談の回は状態を作るために送る）
     ../chat/.venv/bin/python tools/live_check.py -o live.md --jsonl live.jsonl   # 表と全部の応答を書き出す
     ../chat/.venv/bin/python tools/live_check.py --url https://xxxx.trycloudflare.com
 合い言葉（X-Api-Key）は環境変数 TALK_API_KEY、無ければ ai/server/.env から読む。
@@ -70,9 +72,9 @@ def noon_today() -> str:
 
 
 class Client:
-    def __init__(self, url, key):
+    def __init__(self, url, key, rows=None):
         self.url, self.headers = url.rstrip("/"), ({"X-Api-Key": key} if key else {})
-        self.rows = []
+        self.rows, self.only_rows, self.n = [], rows, 0
 
     def reset(self, pet_id):
         requests.post(f"{self.url}/reset", params={"petId": pet_id}, headers=self.headers, timeout=30).raise_for_status()
@@ -88,8 +90,11 @@ class Client:
         return js
 
     def probe(self, scenario, body, expect=None):
+        self.n += 1
+        if self.only_rows and self.n not in self.only_rows:
+            return None
         js = self.talk(body)
-        self.rows.append({"scenario": scenario, "text": body["text"], "expect": expect or [], "res": js})
+        self.rows.append({"no": self.n, "scenario": scenario, "text": body["text"], "expect": expect or [], "res": js})
         print(f"[{scenario}] {body['text']} → {js['reply_text']}", flush=True)
         return js
 
@@ -164,6 +169,8 @@ def picked_of(res) -> str:
             parts.append(f"{m['picked']}")
         if m.get("keys"):
             parts.append(f"先頭 {m['keys'][0]}")
+        if m.get("recent_fact"):
+            parts.append(f"直近の{m['recent_fact']}")
         parts.append(f"{m.get('check')}")
         return " ".join(parts)
     s = res.get("pet_self") or {}
@@ -181,8 +188,8 @@ def table(rows) -> str:
     def cell(x):
         return str(x).replace("|", "／").replace("\n", " ")
     out = ["| # | シナリオ | 発言 | 振り分け先 | 選んだもの | 返事 | 期待 | |", "|---|---|---|---|---|---|---|---|"]
-    for i, r in enumerate(rows, 1):
-        res = r["res"]
+    for r in rows:
+        i, res = r["no"], r["res"]
         route = res["route"] + (f"（{res['judge']['override']}）" if res["judge"].get("override") else "")
         out.append("| " + " | ".join(cell(x) for x in [i, r["scenario"], r["text"], f"{route} / {res['generator']}",
                                                         picked_of(res), res["reply_text"], "・".join(r["expect"]),
@@ -190,14 +197,24 @@ def table(rows) -> str:
     return "\n".join(out)
 
 
+def parse_rows(text):
+    """「1-4,11-14」→ {1, 2, 3, 4, 11, 12, 13, 14}"""
+    out = set()
+    for part in filter(None, (text or "").split(",")):
+        a, _, b = part.partition("-")
+        out.update(range(int(a), int(b or a) + 1))
+    return out or None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default=os.environ.get("TALK_URL", "http://127.0.0.1:8000"))
     ap.add_argument("--only", default="name,baby,exchange")
+    ap.add_argument("--rows", help="流す行の番号（例 1-4,11-14）。無ければ全部")
     ap.add_argument("-o", "--out", help="表（Markdown）の書き出し先")
     ap.add_argument("--jsonl", help="全部の応答の書き出し先")
     args = ap.parse_args()
-    c = Client(args.url, api_key())
+    c = Client(args.url, api_key(), parse_rows(args.rows))
     try:
         health = requests.get(f"{c.url}/health", timeout=10).json()
     except Exception as e:
@@ -206,6 +223,10 @@ def main():
     if not health.get("ok") or not health.get("chat_lora", {}).get("lora"):
         print("※ 判定モデルか 8081 の性格LoRA が読めていません。結果は本物のモデルになりません", file=sys.stderr)
     only = set(args.only.split(","))
+    if c.only_rows and max(c.only_rows) <= 20:          # 1〜20 は name・baby だけ（交換のシナリオは送らない）
+        only.discard("exchange")
+    if c.only_rows and max(c.only_rows) <= 10:          # 1〜10 は name だけ
+        only.discard("baby")
     if "name" in only:
         scenario_name(c, "育った", "adult")
     if "baby" in only:

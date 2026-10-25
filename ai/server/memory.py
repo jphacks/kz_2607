@@ -69,7 +69,7 @@ from mem_past import (journey_items, journey_lines, order_by_question, parse_pas
 from mem_select import (FACT_ASK_RE, FACT_TOPIC_RE, content_words, fact_question_key, key_hit,  # noqa: F401
                         parse_facts, parse_memories, pick_facts, recent_items, select_memories, select_newest)
 from mem_text import (_ends_past, build_extra, build_hint, build_react_hint, build_rewrite_hint,  # noqa: F401
-                      dont_know_reply, fact_say, fallback_reaction, past_memory_say, template_reply)
+                      dont_know_reply, fact_say, fallback_reaction, past_memory_say, template_reply, told_say)
 
 
 # ---------------------------------------------------------------- 本体
@@ -138,6 +138,8 @@ class MemoryTalk:
                 else:
                     q = "」「".join(m["text"] for m in rec)
                     info["_says"] = [f"うん、覚えてるよ！さっき「{q}」って話してくれたよね"]
+            if info.get("recent_fact"):                  # 名前・好きなもの：引用せずに「さっき〜って教えてくれたよね」
+                info["_says"] = [told_say(picked[0]["text"], p)]
             # 決まった返事用に、1件目の日付の言葉を別に持つ
             info["label"] = labels[0] if picked else ""
             info["_plain"] = [m["text"] for m in picked]
@@ -231,8 +233,8 @@ class MemoryTalk:
             # 赤ちゃん言葉に直すと最初の一文だけ残り、中身が消える（「あのね、いいね！」）ので、モデルを呼ばない
             info["check"] = "baby-template"
             return template_reply(kind, plain, p, label, says), "memory-template", {**persona_base, "memory": info}
-        if info.get("fact_picked") or (info.get("keys") or [None])[0] == "pastMemory":
-            # 事実（名前・好きなもの）・前の代の思い出は決まった文だけで答える。
+        if info.get("fact_picked") or info.get("recent_fact") or (info.get("keys") or [None])[0] == "pastMemory":
+            # 事実（名前・好きなもの。facts でも直近の会話でも）・前の代の思い出は決まった文だけで答える。
             # 性格LoRA の一言（「楽しかったね！」）は、名前や前の飼い主さんから聞いた話には合わない
             info["check"] = "template（決まった文だけ）"
             return template_reply(kind, plain, p, label, says), "memory-template", {**persona_base, "memory": info}
