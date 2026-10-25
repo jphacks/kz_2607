@@ -37,6 +37,12 @@ def is_recall(text: str) -> Optional[str]:
     return m.group(0) if m else None
 
 
+def is_time_question(text: str) -> bool:
+    """時間を聞く質問（「昨日なにしたっけ？」「この前なにしたっけ？」）か。日付の言葉があり、思い出を聞いている。
+    kind は current のまま。memory.py で前の代の思い出も候補に入れる"""
+    return date_range(text, date.today())[3] is not None and bool(is_recall(text))
+
+
 # ---------------------------------------------------------------- 日付のしぼり込み（日本時間の今日が基準）
 def date_range(text: str, today: date) -> Tuple[Optional[date], Optional[date], bool, Optional[str]]:
     """返り値: (はじめ, おわり, きっちりしぼるか, 当たった言葉)。きっちり＝その日に無ければ「覚えてない」。"""

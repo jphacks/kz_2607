@@ -313,6 +313,120 @@ class FactsAnswerTest(unittest.TestCase):
         self.assertIn("思い出に無い言葉「ショートケーキ」", reasons)          # facts が無ければ今までどおり外す
 
 
+TODAY = date(2026, 10, 25)
+NOON = "2026-10-25T12:00:00+09:00"
+EXCHANGE_QUESTIONS = ["昨日なにしたっけ？", "この前なにしたっけ？", "今日なにしたっけ？", "前の飼い主さんとは何の話をした？"]
+
+
+def exchanged(food_or_fire):
+    """交換したばかりのペット（今は2代目）。前の代（1代目）の思い出と旅の記録だけある。"""
+    past = [{"id": "p1", "text": food_or_fire, "generation": 1, "createdAt": NOON}]
+    journeys = [{"generation": 1, "summary": "夏の話をよくした", "timeOfDay": "夜", "talkCount": 6}]
+    return past, journeys
+
+
+class ExchangeTest(unittest.TestCase):
+    """段階B：交換のあと、時間を聞く質問・中身の言葉が無い質問で、前の代の思い出から新しい順に答える。"""
+
+    def setUp(self):
+        self.chat = RecordChat()
+        self.mt = MemoryTalk(self.chat, Embedder(mode=EMBED_MODE))
+
+    def ask(self, q, past, journeys, stage=3, memories=(), hist=()):
+        self.chat.extras.clear()
+        return self.mt.reply(PetProfile(stage=stage, generation=2), list(hist), q, list(memories), NAME_MAP, journeys,
+                             today=TODAY, past_memories=past, facts=FACTS)
+
+    def check_pet(self, text, word):
+        past, journeys = exchanged(text)
+        for q in EXCHANGE_QUESTIONS:
+            r, g, persona = self.ask(q, past, journeys)
+            m = persona["memory"]
+            with self.subTest(q=q):
+                self.assertIn(word, r)
+                self.assertTrue(r.startswith("前の飼い主さんがね、"), r)
+                self.assertNotIn("昨日", r)                                   # 思い出の日付は今日
+                self.assertNotIn("ゆうと", r)                                 # 今の飼い主の名前
+                self.assertEqual(m["picked"], ["past:p1"])
+                self.assertEqual(m["facts"], [])
+                extra = self.chat.extras[-1] if self.chat.extras else ""
+                self.assertIn("【覚えていること】（前の飼い主さんとの思い出）", extra)
+                self.assertNotIn(FACTS_HEAD, extra)
+                self.assertNotIn("ゆうと", extra)
+
+    def test_hiyashi_chuka(self):
+        self.check_pet("冷やし中華を食べたと話してくれた", "冷やし中華を食べたって話してくれたんだ")
+
+    def test_hanabi(self):
+        self.check_pet("あのお祭りで花火を見たと言っていた", "花火を見たって言ってたんだ")
+
+    def test_kinds(self):
+        past, journeys = exchanged("冷やし中華を食べたと話してくれた")
+        for q in EXCHANGE_QUESTIONS[:3]:
+            self.assertEqual(self.ask(q, past, journeys)[2]["memory"].get("answer_kind"), "past")   # kind は current のまま
+        self.assertEqual(self.ask(EXCHANGE_QUESTIONS[3], past, journeys)[2]["memory"]["kind"], "past")
+
+    def test_talk_two_pets(self):
+        """/talk から（交換直後の1回目：memories 空・recentTurns 無し）。2匹がそれぞれ前の代の話をする。"""
+        saved = (M.judge, M.memory)
+        M.judge, M.memory = FakeJudge(), MemoryTalk(RecordChat(), Embedder(mode=EMBED_MODE))
+        try:
+            for pet, text, word in [("petA", "冷やし中華を食べたと話してくれた", "冷やし中華"),
+                                    ("petB", "あのお祭りで花火を見たと言っていた", "花火")]:
+                past, journeys = exchanged(text)
+                past[0]["createdAt"] = date.today().isoformat() + "T12:00:00+09:00"
+                r = call(petId=pet, text="昨日なにしたっけ？", want_learn=False, generation=2, pastMemories=past,
+                         journeys=journeys, nameMap=NAME_MAP, facts=FACTS)
+                self.assertEqual(r["route"], "思い出")
+                self.assertIn(word, r["reply_text"])
+                self.assertNotIn("昨日", r["reply_text"])
+                self.assertNotIn("ゆうと", r["reply_text"])
+        finally:
+            M.judge, M.memory = saved
+            talk_state.history.clear()
+            talk_state._last_gen.clear()
+
+    def test_relaxed_day_label(self):
+        """今の代の思い出が今日だけのとき、「昨日」で聞かれても「今日」と言う（過去7日に緩める）。"""
+        memories = [{"id": "m1", "text": "冷やし中華を食べた", "createdAt": NOON}]
+        r, _, persona = self.ask("昨日なにしたっけ？", [], [], memories=memories)
+        self.assertTrue(r.startswith("うん、覚えてるよ！今日冷やし中華を食べたよね。"), r)
+        self.assertEqual(persona["memory"]["relaxed"], 7)
+        r, _, _ = self.ask("去年なにしたっけ？", [], [], memories=memories)        # 去年・先週などは緩めない
+        self.assertNotIn("冷やし中華", r)
+
+    def test_content_question_uses_similarity(self):
+        """中身の言葉がある質問は、新しい順ではなく近さで選ぶ（新しい花火より、古い冷やし中華）。"""
+        memories = [{"id": "m1", "text": "あのお祭りで花火を見た", "createdAt": NOON},
+                    {"id": "m2", "text": "冷やし中華を食べた", "createdAt": "2026-10-22T12:00:00+09:00"}]
+        for q in ["冷やし中華覚えてる？", "この前の冷やし中華覚えてる？"]:
+            r, _, persona = self.ask(q, [], [], memories=memories)
+            with self.subTest(q=q):
+                self.assertEqual(persona["memory"]["picked"][0], "m2")
+                self.assertNotEqual(persona["memory"].get("method"), "newest")
+        r, _, persona = self.ask("この前なにしたっけ？", [], [], memories=memories)   # 中身が無ければ新しい順
+        self.assertEqual(persona["memory"]["picked"][0], "m1")
+
+    def test_baby(self):
+        """赤ちゃんの段階：モデルを呼ばない決まった文。生まれたときの口ぐせ（6種類）のどれでも、中身が切れない。"""
+        from common import AXES
+        cases = [("冷やし中華を食べたと話してくれた", "まえのかいぬしさんがひやしちゅうかをたべたってはなしてくれた"),
+                 ("あのお祭りで花火を見たと言っていた", "まえのかいぬしさんがあのおまつりではなびをみたっていってた")]
+        for text, body in cases:
+            past, journeys = exchanged(text)
+            for q in EXCHANGE_QUESTIONS:
+                for trait in AXES:
+                    p = PetProfile(stage=1, generation=2, birth_trait=trait)
+                    r, g, _ = self.mt.reply(p, [], q, [], NAME_MAP, journeys, today=TODAY, past_memories=past, facts=FACTS)
+                    with self.subTest(text=text, q=q, trait=trait):
+                        self.assertEqual(g, "memory-template")
+                        self.assertIn(body, r)
+                        self.assertEqual(r, p.ending.replace("〜", body) + ("！" if p.ending.startswith("あのね") else ""))
+        p = PetProfile(stage=1, generation=2, birth_trait="active")       # 口ぐせ「〜だよっ！」
+        r = self.mt.reply(p, [], "昨日なにしたっけ？", [], NAME_MAP, [], today=TODAY,
+                          past_memories=exchanged(cases[0][0])[0])[0]
+        self.assertEqual(r, "まえのかいぬしさんがひやしちゅうかをたべたってはなしてくれただよっ！")
+
 if __name__ == "__main__":
     talk_server.log_talk = lambda *a, **k: None    # 1行ログは出さない
     unittest.main(verbosity=2)

@@ -59,6 +59,22 @@ def dont_know_reply(kind: str, p: PetProfile, only_owner: bool = False) -> str:
     return random.choice(DONT_KNOW[k]).format(fp=p.first_person)
 
 
+PAST_WHO = {"past": ("前の飼い主さん", "まえのかいぬしさん"), "first": ("最初の飼い主さん", "さいしょのかいぬしさん")}
+PAST_LEADS = tuple(w[0] + "がね、" for w in PAST_WHO.values())   # past_memory_say の文の始まり（「えっとね、」を重ねない）
+
+
+def past_memory_say(t: str, kind: str, p: PetProfile) -> str:
+    """前の代の思い出（要約の1文）で答える文。要約は主語なし・「〜と話してくれた」「〜と言っていた」で終わるので、
+    「前の飼い主さんがね、〜って話してくれたんだ」にする。赤ちゃんは句読点なし（template_reply が「よ。」を足して直す）"""
+    who = PAST_WHO["first" if kind == "first" else "past"][1 if p.stage == 1 else 0]
+    t = t.strip().rstrip("。")
+    t = re.sub(r"と((?:話|言|笑|喜|教|しゃべ)[^と]*)$", r"って\1", t)    # 「〜と話してくれた」→「〜って話してくれた」
+    t = re.sub(r"([てで])いた$", r"\1た", t)                           # 「言っていた」→「言ってた」
+    if not _ends_past(t):
+        return f"{who}とのこと{t}っておぼえてる" if p.stage == 1 else f"{who}とのことは「{t}」って覚えてるよ"
+    return f"{who}が{t}んだ" if p.stage == 1 else f"{who}がね、{t}んだ"
+
+
 def fact_say(f: dict, p: PetProfile) -> str:
     """事実（parse_facts の1件）を聞かれたときの決まった文。template_reply の says[0] に使う。
     赤ちゃんは一文・句読点なし（baby_talk.py は最初の一文だけ残すので）"""
@@ -79,7 +95,7 @@ def template_reply(kind: str, lines: List[str], p: PetProfile, label: str = "", 
         s = says[0].rstrip("。")
         if p.stage == 1:
             return _baby(re.sub(r"[、，,！!？?「」]", "", s) + "よ。", p)
-        return f"えっとね、{s}。"
+        return f"{s}。" if s.startswith(PAST_LEADS) else f"えっとね、{s}。"
     t = lines[0].rstrip("。")
     if p.stage == 1:
         # baby_talk.py は最初の一文だけ残す（「！」「、」で切れる）ので、一文・句読点なしで渡す

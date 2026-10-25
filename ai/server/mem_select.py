@@ -3,7 +3,7 @@ mem_select.py — 今の飼い主との思い出（memories）から、今の発
 """
 import re
 import unicodedata
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import mem_config as C
@@ -23,7 +23,11 @@ RECENT_SKIP_RE = re.compile(r"^(?:ただいま|おかえり|おはよう|おや�
                             r"なるほど|ばいばい|またね|よろしく)")
 # 近さが足りなくても、発言の中身の言葉（漢字・カタカナ2文字以上）が直近の発言にあれば選ぶ。日付・ふつうの言葉は数えない
 KEY_RE = re.compile(r"[一-龥々]{2,}|[ァ-ヶー]{2,}|[A-Za-z]{2,}")
-KEY_SKIP = {"去年", "昨日", "今日", "今週", "先週", "先月", "最近", "一緒", "思い出", "前", "飼い主", "覚え", "何時", "何処"}
+KEY_SKIP = {"去年", "昨日", "今日", "今週", "先週", "先月", "最近", "一緒", "思い出", "前", "飼い主", "覚え", "何時", "何処",
+            "最初", "一番"}
+# 1日でしぼる日付の言葉。その日に思い出が無ければ、過去 RELAX_DAYS 日に緩める（「去年」「先週」などは緩めない）
+RELAX_WORDS = {"今日", "昨日", "おととい"}
+RELAX_DAYS = 7
 
 # ---------------------------------------------------------------- 直近の会話（まだ要約されていない分）
 def recent_items(hist: Optional[List[dict]], user_text: str, summarized_seq: Optional[int] = None) -> List[dict]:
@@ -50,10 +54,49 @@ def recent_items(hist: Optional[List[dict]], user_text: str, summarized_seq: Opt
     return out
 
 
+def content_words(text: str) -> List[str]:
+    """発言の中身の言葉（漢字・カタカナ2文字以上。日付・ふつうの言葉を除く）。"""
+    return [w for w in KEY_RE.findall(unicodedata.normalize("NFKC", text)) if w not in KEY_SKIP]
+
+
 def key_hit(query: str, doc: str) -> bool:
     """今の発言の中身の言葉（日付・ふつうの言葉を除く）が、doc に1つでも入っているか。"""
-    words = [w for w in KEY_RE.findall(unicodedata.normalize("NFKC", query)) if w not in KEY_SKIP]
-    return any(w in doc for w in words)
+    return any(w in doc for w in content_words(query))
+
+
+def select_newest(text: str, cands: List[dict], today: date) -> Tuple[List[dict], dict]:
+    """中身の言葉が無い質問（「昨日なにしたっけ？」「前の飼い主さんとは何の話をした？」）：近さを使わず新しい順に選ぶ。
+    日付の言葉があればその日でしぼる。1日でしぼって0件なら過去 RELAX_DAYS 日に緩める（日付の言い方は思い出の本当の日で言う）。
+    直近の会話（date が None）は今日として数える。同じ日なら cands の順（直近の会話 → 今の代 → 前の代）。
+    選ぶのは1件目と同じ種類（直近の会話・要約された思い出・前の代）のものだけ、最大 MEMORY_TOPK 件"""
+    start, end, strict, word = date_range(text, today)
+    info: Dict[str, Any] = {"date": word, "n": len(cands), "method": "newest"}
+
+    def day(m):
+        return m["date"] or today
+
+    order = sorted(cands, key=day, reverse=True)      # sorted は同じ日の順を保つ
+    if start is not None:
+        inr = [m for m in order if start <= day(m) <= end]
+        info["in_range"] = len(inr)
+        if inr:
+            order = inr
+        elif strict and word in RELAX_WORDS:
+            order = [m for m in order if today - timedelta(days=RELAX_DAYS) <= day(m) <= today]
+            info["relaxed"] = RELAX_DAYS
+        elif strict:
+            order = []
+    if not order:
+        info["why"] = "その日の思い出がない" if cands else "思い出がない"
+        info["picked"] = []
+        return [], info
+
+    def source(m):
+        return "recent" if m.get("recent") else "past" if m.get("past") else "saved"
+
+    picked = [m for m in order if source(m) == source(order[0])][:C.MEMORY_TOPK]
+    info["picked"] = [m["id"] for m in picked]
+    return picked, info
 
 
 # ---------------------------------------------------------------- 思い出を選ぶ
@@ -126,7 +169,11 @@ def _select_saved(embedder: Embedder, text: str, items: List[dict], name_map: Di
     if start is not None:
         inr = [m for m in items if m["date"] and start <= m["date"] <= end]
         info["in_range"] = len(inr)
-        if strict:
+        if strict and not inr and word in RELAX_WORDS:   # その日に無ければ過去 RELAX_DAYS 日に緩め、近さで選ぶ
+            cands = [m for m in items if m["date"] and today - timedelta(days=RELAX_DAYS) <= m["date"] <= today]
+            strict = False
+            info["relaxed"] = RELAX_DAYS
+        elif strict:
             cands = inr
         elif inr:
             cands = inr

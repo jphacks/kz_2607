@@ -62,13 +62,14 @@ import mem_config as C
 from common import TZ, PetProfile
 from mem_check import LEFTOVER_RE, check_reaction, memory_check, trim_to_memory  # noqa: F401
 from mem_embed import Embedder, lexical_sim  # noqa: F401
-from mem_kind import date_range, day_label, is_recall, memory_kind  # noqa: F401
+from mem_kind import date_range, day_label, is_recall, is_time_question, memory_kind  # noqa: F401
 from mem_names import norm_name_map, unmask  # noqa: F401
 from mem_past import (journey_items, journey_lines, order_by_question, parse_past_memories,  # noqa: F401
                       pick_journey, target_generation)
-from mem_select import key_hit, parse_facts, parse_memories, pick_facts, recent_items, select_memories  # noqa: F401
+from mem_select import (content_words, key_hit, parse_facts, parse_memories, pick_facts, recent_items,  # noqa: F401
+                        select_memories, select_newest)
 from mem_text import (_ends_past, build_extra, build_hint, build_react_hint, build_rewrite_hint,  # noqa: F401
-                      dont_know_reply, fact_say, fallback_reaction, template_reply)
+                      dont_know_reply, fact_say, fallback_reaction, past_memory_say, template_reply)
 
 
 # ---------------------------------------------------------------- 本体
@@ -85,12 +86,33 @@ class MemoryTalk:
         if kind == "current":
             items = parse_memories(memories, name_map)
             recent = recent_items(hist, user_text, summarized_seq)   # まだ要約されていない直近の会話（飼い主の発言）
-            picked, sel = select_memories(self.embedder, user_text, items, name_map, today, recent)
+            past, gen = [], None
+            if is_time_question(user_text):
+                # 時間を聞く質問（「昨日なにしたっけ？」）は、前の代の思い出も候補にする（交換したばかりでも答えられるように）
+                gen = target_generation("past", p, journeys, past_memories)
+                past = [{**m, "past": True} for m in parse_past_memories(past_memories, gen)[0]] if gen is not None else []
+                info["time_question"], info["past_n"] = True, len(past)
+            if info.get("time_question") and not content_words(user_text):
+                # 中身の言葉が無い → 近さを使わず新しい順（同じ日なら 直近の会話 → 今の代 → 前の代）
+                picked, sel = select_newest(user_text, recent + items + past, today)
+            else:
+                picked, sel = select_memories(self.embedder, user_text, items, name_map, today, recent)
+                if not picked and past:
+                    picked, sel = select_memories(self.embedder, user_text, past, {}, today)
             if os.environ.get("DEBUG_PROMPT"):   # 一時的：直近の候補・要約された思い出・選んだもの
                 print(f"[memory] hist={len(hist or [])} recent={[m['text'] for m in recent]} "
-                      f"saved={len(items)} picked={[m['text'] for m in picked]} sel={sel}", flush=True)
+                      f"saved={len(items)} past={len(past)} picked={[m['text'] for m in picked]} sel={sel}", flush=True)
             info.update(sel)
             info["recent_n"] = len(recent)
+            if picked and picked[0].get("past"):
+                # 前の代の思い出で答える。reply() で past として扱う（見出し・今の飼い主の名前のチェック・facts を入れない）
+                picked = [m for m in picked if m.get("past")]
+                info.update({"answer_kind": "past", "generation": gen, "picked": [m["id"] for m in picked],
+                             "keys": ["pastMemory"]})
+                info["_plain"] = lines = [m["text"] for m in picked]
+                info["_says"] = [past_memory_say(picked[0]["text"], "past", p)]
+                return lines, info, ""
+            picked = [m for m in picked if not m.get("past")]
             labels = ["さっき" if m.get("recent") else day_label(m["date"], today) for m in picked]
             lines = [(f"さっき、「{m['text']}」と話してくれた" if m.get("recent") else (f"{lb}、" if lb else "") + m["text"])
                      for m, lb in zip(picked, labels)]
@@ -129,17 +151,19 @@ class MemoryTalk:
         past, dropped = parse_past_memories(past_memories, gen)
         info["past_n"], info["past_dropped"] = len(past), dropped
         if past and (qtype in ("default", "when") or not items):   # 旅の記録が無ければ、どの質問でも思い出で答える
-            picked, sel = select_memories(self.embedder, user_text, past, {}, today)
+            if qtype == "default" and not content_words(user_text):
+                # 「前の飼い主さんとは何の話をした？」：中身の言葉が無いので、近さを使わず新しい順
+                picked, sel = select_newest(user_text, past, today)
+                info["past_method"] = "newest"
+            else:
+                picked, sel = select_memories(self.embedder, user_text, past, {}, today)
             info["past_scores"], info["past_why"] = sel.get("scores"), sel.get("why")
             if not picked and not items:            # 旅の記録が無いときは、いちばん新しい思い出で答える
                 picked = past[:1]
             if picked:
                 m = picked[0]
-                who = ("さいしょのかいぬしさん" if kind == "first" else "まえのかいぬしさん") if p.stage == 1 else \
-                      ("最初の飼い主さん" if kind == "first" else "前の飼い主さん")
                 t = m["text"]
-                say = f"{who}とは{t}んだ" if _ends_past(t) else f"{who}とのことは「{t}」って覚えてるよ"
-                items = [{"key": "pastMemory", "line": t, "say": say}] + items
+                items = [{"key": "pastMemory", "line": t, "say": past_memory_say(t, kind, p)}] + items
                 info["picked"] = [m["id"]]
         if not items:
             info["why"] = "旅の記録・前の代の思い出がない"
@@ -171,6 +195,10 @@ class MemoryTalk:
                                             summarized_seq, fact_items)
         plain = info.pop("_plain", [])
         says = info.pop("_says", None)
+        if info.get("answer_kind") == "past":
+            # 時間を聞く質問に前の代の思い出で答える：ここからは前の代の話として扱う
+            # （【覚えていること】は前の飼い主さんの見出し・今の飼い主の facts は入れない・今の飼い主の名前をチェック）
+            kind, fact_items, fact_lines = "past", [], []
         if past_hint:
             info["past_hint"] = True
         info.update({"lines": lines, "check": None, "reasons": [], "facts": [f["key"] for f in fact_items]})
