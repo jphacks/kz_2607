@@ -65,6 +65,12 @@ uint32_t read32(const uint8_t* p) {
          static_cast<uint32_t>(p[2]) << 16 | static_cast<uint32_t>(p[3]) << 24;
 }
 
+uint32_t readBig32(const uint8_t* p) {
+  return static_cast<uint32_t>(p[0]) << 24 |
+         static_cast<uint32_t>(p[1]) << 16 |
+         static_cast<uint32_t>(p[2]) << 8 | static_cast<uint32_t>(p[3]);
+}
+
 uint32_t crc32(const uint8_t* data, size_t size) {
   uint32_t crc = 0xffffffff;
   for (size_t i = 0; i < size; ++i) {
@@ -217,16 +223,28 @@ void handleEnd(const Frame& frame) {
   if (state != State::Receiving || id != session) return;
   if (sequence != lastSequence + 1 || received != expectedSize ||
       currentPetIdCrc() != petIdCrc || audioBusy()) {
+    Serial.printf("Pet image END rejected: seq=%u expected=%u bytes=%lu/%lu pet=%u busy=%u\n",
+                  sequence, lastSequence + 1,
+                  static_cast<unsigned long>(received),
+                  static_cast<unsigned long>(expectedSize),
+                  currentPetIdCrc() == petIdCrc, audioBusy());
     sendError(id, 4);
     stopReceiving();
     return;
   }
   const uint8_t pngSignature[] = {137, 80, 78, 71, 13, 10, 26, 10};
   if (expectedSize < 24 || memcmp(incoming, pngSignature, 8) != 0 ||
-      read32(incoming + 8) != 13 || memcmp(incoming + 12, "IHDR", 4) != 0 ||
-      __builtin_bswap32(read32(incoming + 16)) != width ||
-      __builtin_bswap32(read32(incoming + 20)) != height ||
+      readBig32(incoming + 8) != 13 || memcmp(incoming + 12, "IHDR", 4) != 0 ||
+      readBig32(incoming + 16) != width ||
+      readBig32(incoming + 20) != height ||
       crc32(incoming, expectedSize) != expectedCrc) {
+    Serial.printf("Pet image PNG validation failed: IHDR=%lu size=%lux%lu expected=%ux%u crc=%08lx expected=%08lx\n",
+                  static_cast<unsigned long>(expectedSize >= 12 ? readBig32(incoming + 8) : 0),
+                  static_cast<unsigned long>(expectedSize >= 20 ? readBig32(incoming + 16) : 0),
+                  static_cast<unsigned long>(expectedSize >= 24 ? readBig32(incoming + 20) : 0),
+                  width, height,
+                  static_cast<unsigned long>(crc32(incoming, expectedSize)),
+                  static_cast<unsigned long>(expectedCrc));
     sendError(id, 4);
     stopReceiving();
     return;
@@ -247,6 +265,7 @@ void handleEnd(const Frame& frame) {
   }
   canvas->fillSprite(TFT_BLACK);
   if (!canvas->drawPng(incoming, expectedSize, 0, 0)) {
+    Serial.println("Pet image PNG decode failed");
     delete canvas;
     sendError(id, 4);
     stopReceiving();
