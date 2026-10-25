@@ -328,12 +328,14 @@ AIサーバーのURLは、Firestoreの `config/ai`(ドキュメントID `ai`)の
 
 ## 絵のキー(`getPet` の `appearance`)
 
-性格の**いちばん強い軸**と**2番目に強い軸**、そして**成長の段階**で、絵が決まる。生まれたての赤ちゃんの段階から、性格に合った絵が出る。
+**種族(動物)**と**2番目・3番目に強い軸**、そして**成長の段階**で、絵が決まる。生まれたての赤ちゃんの段階から、性格に合った絵が出る。
+
+**種族(動物 = `primary`)は、誕生のときの性格の軸(`birthTrait`)で固定。** 交換で飼い主が変わって性格が動いても、動物は変わらない。目(`secondary`)と口(`tertiary`)は、動物の軸を除いた中で、今の性格が強い順に決まる(性格が育つと変わる)。誕生のながれを通っていない昔のペットは、固定する軸がないので、今の性格で決まる。
 
 ```
 appearance: {
   stage: "baby",                  // baby / child / adult
-  primary: "nightowl",            // いちばん強い軸
+  primary: "nightowl",            // 種族(動物)。誕生のときの軸で固定
   secondary: "curious",           // 2番目に強い軸
   tertiary: "talkative",          // 3番目に強い軸(パーツ方式の口などに)
   key: "nightowl_curious_baby",   // 出す絵のキー
@@ -344,11 +346,11 @@ appearance: {
 - `primary` `secondary` `tertiary` は、いつも別の軸。パーツ方式では、動物 = `primary` と `stage`、目 = `secondary`、口 = `tertiary` のように使える(組み合わせは、アプリで決める)。
 - 軸の名前: `activity`(活発さ)、`nightowl`(夜ふかし)、`logical`(理屈っぽさ)、`talkative`(おしゃべり)、`friendly`(人懐っこさ)、`curious`(好奇心)
 - 絵は、`{primary}_{secondary}_{stage}`(6×5×3 = 90枚)と、`{primary}_{stage}`(6×3 = 18枚)の、合計108枚。全部そろわなくても、`fallbackKey` の18枚があれば動く。
-- 性格が変わると、キーも変わる(交換のあとなど)。表示のたびに、`getPet` の `appearance.key` を見る。
+- 性格が変わると、`secondary`・`tertiary`(目・口)が変わり、キーも変わることがある(交換のあとなど)。`primary`(動物)は、誕生のながれを通ったペットでは変わらない。表示のたびに、`getPet` の `appearance.key` を見る。
 - 軸の値が同じときの順番(`primary` も `secondary` も同じ規則):
   - **誕生のながれ(`setInitialPersonality`)で性格を決めたペット**: 決まった順 `activity → friendly → talkative → logical → curious → nightowl`。`birthTrait`(`active → affection → talkative → logic → curious → night`)と同じ順なので、**誕生のときは `birthTrait` と `primary` が必ず同じ軸**(`active` = `activity`、`affection` = `friendly`、`logic` = `logical`、`night` = `nightowl`)になる。
   - 昔のペット(誕生のながれを通っていない): ペットごとに決まった順。同じペットなら、いつも同じ結果になる。
-  - 性格が育つと、値が少しずつ変わって同じ値でなくなるので、`primary` は `birthTrait` と違う軸になることがある。
+  - 性格が育って値が変わっても、誕生のながれを通ったペットの `primary` は、`birthTrait` の軸のまま変わらない(昔のペットは、今の性格で決まるので、変わることがある)。
 - 進化(`talkToPet` の `evolved: true`)のあとは、`getPet` を呼び直すと、新しいキーが取れる。
 - 絵のデザインは、人型ではない生き物にする(段階が進んでも、人型にはしない)。
 

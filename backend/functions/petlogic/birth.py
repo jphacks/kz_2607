@@ -11,7 +11,7 @@
 """
 import re
 
-from .appearance import appearance_of
+from .appearance import appearance_for_pet
 from .errors import ApiError
 from .register import AXIS_NAMES, validate_device_id
 from .store import run_in_transaction
@@ -140,6 +140,6 @@ def set_initial_personality(db, uid, data, now, run_tx=run_in_transaction):
             pet = {**pet, **fields}
         return {"petId": pet_id, "personalityAxes": pet["personalityAxes"], "birthTrait": pet["birthTrait"],
                 "birthStatus": birth_status_of(pet),
-                "appearance": appearance_of(pet_id, pet["personalityAxes"], "baby", fixed_order=True), "alreadySet": already}
+                "appearance": appearance_for_pet(pet_id, pet, "baby"), "alreadySet": already}
 
     return {"status": "ok", **run_tx(db, work)}

@@ -1,6 +1,6 @@
 """ペット情報の取得(読むだけ)。ホーム画面の表示に使う。"""
 from .errors import ApiError
-from .appearance import appearance_of
+from .appearance import appearance_for_pet
 from .birth import birth_status_of, public_profile
 from .growth import stage_config, stage_of
 from .register import validate_device_id
@@ -33,8 +33,7 @@ def get_pet(db, uid, device_id):
         "gauge": pet.get("gauge", 0.0),
         "totalTalks": pet.get("totalTalks", 0),
         **stage,
-        "appearance": appearance_of(pet_id, pet.get("personalityAxes"), stage["stage"],
-                                 fixed_order=pet.get("birthAnswers") is not None),
+        "appearance": appearance_for_pet(pet_id, pet, stage["stage"]),
         "personalityAxes": pet.get("personalityAxes", {}),
         "learnedWords": list(pet.get("learnedWords", [])),
         "createdAt": created.isoformat() if hasattr(created, "isoformat") else None,
