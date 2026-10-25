@@ -379,6 +379,11 @@ class _Core2ConnectionPageState extends State<Core2ConnectionPage> {
             const SizedBox(height: 16),
             SelectableText(ble.voiceCloud.status),
             SelectableText(ble.petConfigStatus),
+            SelectableText(ble.imageStatus),
+            if (ble.imageSending && ble.imageTotalBytes > 0)
+              LinearProgressIndicator(
+                value: ble.imageSentBytes / ble.imageTotalBytes,
+              ),
             if (ble.voiceCloud.replyTransferStatus != null)
               SelectableText(ble.voiceCloud.replyTransferStatus!),
             const Divider(),
