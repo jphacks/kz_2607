@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'voice_transfer.dart';
 import '../models/pet_letter.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
@@ -14,14 +15,20 @@ class CloudFunctionsService {
     Future<void> Function()? prepare,
     Future<Object?> Function(String, Map<String, Object?>, Duration)? invoke,
     Future<Object?> Function(Map<String, Object?>)? progressFallback,
+    Future<Object?> Function(Map<String, Object?>)? initialPersonalityFallback,
   }) : _prepare = prepare ?? _initializeAndAuthenticate,
        _invoke = invoke ?? _call,
-       _progressFallback = progressFallback ?? _callProgressRaw;
+       _progressFallback = progressFallback ?? _callProgressRaw,
+       _initialPersonalityFallback =
+           initialPersonalityFallback ??
+           ((data) => _callJson('setInitialPersonality', data));
   static const region = 'asia-northeast1';
   final Future<void> Function() _prepare;
   final Future<Object?> Function(String, Map<String, Object?>, Duration)
   _invoke;
   final Future<Object?> Function(Map<String, Object?>) _progressFallback;
+  final Future<Object?> Function(Map<String, Object?>)
+  _initialPersonalityFallback;
 
   static Future<void> _initializeAndAuthenticate() async {
     if (Firebase.apps.isEmpty) await Firebase.initializeApp();
@@ -65,12 +72,54 @@ class CloudFunctionsService {
     required String deviceId,
     required List<int> answers,
     required String requestId,
-  }) => _birthCall('setInitialPersonality', {
-    'deviceId': deviceId,
-    'answers': answers,
-    'questionnaireVersion': 'birth_v1_6q4',
-    'requestId': requestId,
-  });
+  }) async {
+    // Snapshot the request before any async work: retries must use identical answers.
+    if (answers.length != 6 ||
+        answers.any((answer) => answer < 0 || answer > 3)) {
+      throw const FormatException('answers は0〜3の整数を6個指定してください。');
+    }
+    final data = <String, Object?>{
+      'deviceId': deviceId,
+      'answers': List<int>.unmodifiable(answers),
+      'questionnaireVersion': 'birth_v1_6q4',
+      'requestId': requestId,
+    };
+    if (kDebugMode) {
+      debugPrint(
+        'setInitialPersonality answers=${jsonEncode(data["answers"])} '
+        'types=${answers.map((value) => value.runtimeType).join(",")} '
+        'order=activity,friendly,talkative,logical,curious,nightowl',
+      );
+    }
+    await _prepare();
+    Object? result;
+    try {
+      result = await _invoke(
+        'setInitialPersonality',
+        data,
+        const Duration(seconds: 30),
+      );
+    } on FirebaseFunctionsException catch (error) {
+      final details = error.details;
+      if (error.code != 'invalid-argument' ||
+          details is! Map ||
+          details['reason'] != 'invalid_answers') {
+        rethrow;
+      }
+      // The native callable codec may wrap integers. Send JSON numbers directly
+      // only after answer validation fails; keep the same idempotency identity.
+      if (kDebugMode) {
+        debugPrint(
+          'setInitialPersonality: retry invalid_answers with JSON integers',
+        );
+      }
+      result = await _initialPersonalityFallback(data);
+    }
+    if (result is! Map) {
+      throw const FormatException('setInitialPersonalityの応答が仕様と異なります');
+    }
+    return Map<String, dynamic>.from(result);
+  }
 
   Future<Map<String, dynamic>> generateBirthProfile(
     String petId, {
@@ -162,15 +211,21 @@ class CloudFunctionsService {
     }
   }
 
-  static Future<Object?> _callProgressRaw(Map<String, Object?> data) async {
+  static Future<Object?> _callProgressRaw(Map<String, Object?> data) =>
+      _callJson('recordProgress', data);
+
+  static Future<Object?> _callJson(
+    String function,
+    Map<String, Object?> data,
+  ) async {
     final token = await FirebaseAuth.instance.currentUser?.getIdToken();
     if (token == null || token.isEmpty) {
-      throw StateError('歩数の送信にはFirebaseログインが必要です');
+      throw StateError('$functionの呼び出しにはFirebaseログインが必要です');
     }
     final projectId = Firebase.app().options.projectId;
     final uri = Uri.https(
       '$region-$projectId.cloudfunctions.net',
-      '/recordProgress',
+      '/$function',
     );
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10);
@@ -192,7 +247,7 @@ class CloudFunctionsService {
           .timeout(const Duration(seconds: 30));
       final decoded = jsonDecode(body);
       if (decoded is! Map) {
-        throw const FormatException('recordProgressの応答が不正です');
+        throw FormatException('$functionの応答が不正です');
       }
       final error = decoded['error'];
       if (error is Map) {
@@ -200,7 +255,7 @@ class CloudFunctionsService {
           code: (error['status']?.toString() ?? 'unknown')
               .toLowerCase()
               .replaceAll('_', '-'),
-          message: error['message']?.toString() ?? '歩数の送信に失敗しました。',
+          message: error['message']?.toString() ?? '$functionの呼び出しに失敗しました。',
           details: error['details'],
         );
       }

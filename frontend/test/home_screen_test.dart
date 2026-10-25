@@ -23,7 +23,7 @@ Future<void> loadHomeFont() async {
 
 void main() {
   setUpAll(loadHomeFont);
-  testWidgets('home displays sample pet and honest disconnected status', (
+  testWidgets('home never shows sample pet or gauge before connection', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -33,8 +33,9 @@ void main() {
     await tester.pumpWidget(const MyApp(home: HomeScreen()));
     await tester.pumpAndSettle();
     expect(find.text('いま、一緒にいる子'), findsOneWidget);
-    expect(find.text('ポポ'), findsOneWidget);
-    expect(find.text('旅立ちゲージ 72%'), findsOneWidget);
+    expect(find.text('ポポ'), findsNothing);
+    expect(find.text('旅立ちゲージ 72%'), findsNothing);
+    expect(find.text('M5に接続すると、この子の情報を表示します。'), findsOneWidget);
     await tester.ensureVisible(find.text('未接続 · M5Stackにつなぐ'));
     expect(find.text('接続済み · M5Stack / 設定'), findsNothing);
     expect(tester.takeException(), isNull);
